@@ -1,0 +1,39 @@
+{
+  "name": "@codery/probes",
+  "version": "0.1.0",
+  "description": "MCP server and library for E2E continuous testing — HTTP, SQL, FS",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "probes": "src/index.ts"
+  },
+  "main": "src/lib.ts",
+  "types": "src/lib.ts",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.0",
+    "better-sqlite3": "^12.9.0",
+    "yaml": "^2.8.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.8.0"
+  },
+  "files": [
+    "src"
+  ],
+  "keywords": [
+    "mcp",
+    "e2e",
+    "testing",
+    "probes",
+    "http",
+    "sqlite",
+    "filesystem"
+  ]
+}

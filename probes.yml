@@ -1,0 +1,15 @@
+http:
+  client:
+    base_url: "http://localhost:3000"
+    timeout_ms: 5000
+  server:
+    port: 9876
+    idle_timeout_ms: 30000
+
+sql:
+  path: "./data/test.db"
+  reset_on_start: true
+
+fs:
+  root: "./test-fixture"
+  reset_on_start: true
