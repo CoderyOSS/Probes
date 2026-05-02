@@ -1,6 +1,6 @@
 # @codery/probes
 
-MCP server and library for E2E continuous testing — HTTP, SQL, and filesystem probes.
+MCP server and library for E2E continuous testing — HTTP, SQL, filesystem, and TCP socket probes.
 
 ## Install
 
@@ -36,7 +36,19 @@ await p.fs.put({ path: "greeting.txt", content: "hello world" });
 const content = await p.fs.read({ path: "greeting.txt" });
 console.log(content); // "hello world"
 
+// TCP — raw socket server, capture and send bytes
+const p2 = await probes({
+  tcp: [{ name: "my_service", port: 5000 }],
+});
+// Watch streams incoming data (AsyncIterable)
+for await (const chunk of p2.tcp.watch({ target: "my_service" })) {
+  console.log(Buffer.from(chunk.data, "base64").toString());
+}
+// Send bytes to connected clients
+await p2.tcp.send({ target: "my_service", data: Buffer.from("hello").toString("base64") });
+
 await p.close();
+await p2.close();
 ```
 
 ## MCP Server
@@ -65,6 +77,16 @@ sql:
 fs:
   root: "./test-fixture"
   reset_on_start: true
+
+tcp:
+  - name: mongo_mock
+    port: 27017
+    handshake: mongodb
+  - name: redis_mock
+    port: 6379
+    handshake: redis
+  - name: raw_tcp
+    port: 9000
 ```
 
 ## API
@@ -99,6 +121,17 @@ Creates and initializes a probes instance. At least one interface must be config
 | `fs.read({ path })` | Read file |
 | `fs.watch({ path, timeout_ms? })` | Wait for file change |
 | `fs.reset({ path? })` | Delete file/dir (or clear root) |
+
+### TCP
+
+| Method | Description |
+|--------|-------------|
+| `tcp.send({ target, data })` | Send base64-encoded bytes to all connected clients |
+| `tcp.watch({ target, timeout_ms? })` | AsyncIterable yielding incoming data chunks |
+
+**Handshake modules:** `raw` (default), `mongodb`, `redis`, `postgresql`
+
+Handshake modules auto-handle initial protocol negotiation (e.g., MongoDB `ismaster`, Redis `PING`). After handshake, `watch()` and `send()` operate on raw bytes.
 
 ## License
 
