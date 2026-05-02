@@ -2,3 +2,4 @@ node_modules/
 dist/
 *.db
 test-fixture/
+__tmp_lib_test__/
