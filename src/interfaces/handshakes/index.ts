@@ -27,3 +27,6 @@ registerHandshake(mongodbHandshake);
 
 import redisHandshake from "./redis.js";
 registerHandshake(redisHandshake);
+
+import postgresqlHandshake from "./postgresql.js";
+registerHandshake(postgresqlHandshake);

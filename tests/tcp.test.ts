@@ -194,6 +194,7 @@ describe("handshake registry", () => {
     expect(names).toContain("raw");
     expect(names).toContain("mongodb");
     expect(names).toContain("redis");
+    expect(names).toContain("postgresql");
   });
 });
 
@@ -302,6 +303,46 @@ describe("redis handshake", () => {
       });
 
       expect(response).toBe("+OK\r\n");
+    } finally {
+      tcp.close();
+    }
+  });
+});
+
+describe("postgresql handshake", () => {
+  it("completes auth handshake", async () => {
+    const tcp = createTcpInterface([
+      { name: "pg", port: 29013, handshake: "postgresql" },
+    ]);
+
+    try {
+      const response = await new Promise<Buffer>((resolve, reject) => {
+        const client = createConnection({ port: 29013, host: "127.0.0.1" }, () => {
+          const params = Buffer.from("user\0testuser\0database\0testdb\0\0");
+          const length = Buffer.alloc(4);
+          length.writeInt32BE(4 + 4 + params.length, 0);
+          const protocol = Buffer.alloc(4);
+          protocol.writeInt32BE(196608, 0);
+          client.write(Buffer.concat([length, protocol, params]));
+        });
+
+        client.on("data", (data: Buffer) => {
+          resolve(data);
+          client.destroy();
+        });
+
+        client.on("error", reject);
+        setTimeout(() => { client.destroy(); reject(new Error("timeout")); }, 3000);
+      });
+
+      expect(response[0]).toBe(0x52);
+      const msgLen = response.readInt32BE(1);
+      expect(msgLen).toBe(8);
+      const authCode = response.readInt32BE(5);
+      expect(authCode).toBe(0);
+
+      const zPos = response.indexOf(0x5a);
+      expect(zPos).toBeGreaterThan(-1);
     } finally {
       tcp.close();
     }
