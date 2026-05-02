@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { probes } from "./lib.js";
-import type { CapturedTcpData, ProbesConfig } from "./interfaces/types.js";
+import type { CapturedTcpData, CapturedWsMessage, ProbesConfig } from "./interfaces/types.js";
 
 export async function startMcpServer(config: ProbesConfig): Promise<void> {
   const instance = await probes(config);
@@ -316,6 +316,83 @@ export async function startMcpServer(config: ProbesConfig): Promise<void> {
       return {
         content: [
           { type: "text" as const, text: JSON.stringify(captured, null, 2) },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "ws_send",
+    {
+      description:
+        "Send a message to all connected WebSocket clients on a target. Use binary: true to send base64-encoded bytes as a binary frame.",
+      inputSchema: {
+        target: z.string().describe("WS target name from config"),
+        data: z.string().describe("Message content (text) or base64-encoded bytes (if binary)"),
+        binary: z.boolean().optional().describe("Send as binary frame (data is base64)"),
+      },
+    },
+    async ({ target, data, binary }) => {
+      await instance.ws.send({ target, data, binary });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: binary
+              ? `Sent ${Buffer.from(data, "base64").length} bytes to ${target}`
+              : `Sent text message to ${target}`,
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "ws_watch",
+    {
+      description:
+        "Wait for an incoming WebSocket message on a target. Blocks until data arrives or timeout.",
+      inputSchema: {
+        target: z.string().describe("WS target name from config"),
+        timeout_ms: z
+          .number()
+          .optional()
+          .describe("Timeout in milliseconds (default 30000)"),
+      },
+    },
+    async ({ target, timeout_ms }) => {
+      const iter = instance.ws.watch({ target, timeout_ms });
+      const result = await iter[Symbol.asyncIterator]().next();
+      if (result.done) {
+        return {
+          content: [{ type: "text" as const, text: "Watch ended" }],
+        };
+      }
+      const captured: CapturedWsMessage = result.value;
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(captured, null, 2) },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "ws_reset",
+    {
+      description: "Clear buffered WebSocket messages for a target.",
+      inputSchema: {
+        target: z.string().describe("WS target name from config"),
+      },
+    },
+    async ({ target }) => {
+      await instance.ws.reset({ target });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `WS buffer cleared for ${target}`,
+          },
         ],
       };
     }
