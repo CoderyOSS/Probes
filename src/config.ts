@@ -51,12 +51,27 @@ const TcpSchema = z.array(TcpTargetSchema).min(1).refine(
   { message: "TCP target names must be unique" }
 );
 
+const WsTargetSchema = z.object({
+  name: z.string().min(1),
+  port: z.number().int().min(1).max(65535),
+  idle_timeout_ms: z.number().int().positive().optional(),
+});
+
+const WsSchema = z.array(WsTargetSchema).min(1).refine(
+  (targets) => {
+    const names = targets.map((t) => t.name);
+    return new Set(names).size === names.length;
+  },
+  { message: "WS target names must be unique" }
+);
+
 const ProbesConfigSchema = z
   .object({
     http: HttpSchema.optional(),
     sql: SqlSchema.optional(),
     fs: FsSchema.optional(),
     tcp: TcpSchema.optional(),
+    ws: WsSchema.optional(),
   })
   .strict();
 

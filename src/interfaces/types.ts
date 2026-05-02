@@ -33,6 +33,22 @@ export interface TcpTargetConfig {
 
 export type TcpConfig = TcpTargetConfig[];
 
+export interface WsTargetConfig {
+  name: string;
+  port: number;
+  idle_timeout_ms?: number;
+}
+
+export type WsConfig = WsTargetConfig[];
+
+export interface CapturedWsMessage {
+  data: string;
+  data_base64?: string;
+  timestamp: number;
+  remote: string;
+  type: "text" | "binary";
+}
+
 export interface CapturedTcpData {
   data: string;
   timestamp: number;
@@ -44,6 +60,7 @@ export interface ProbesConfig {
   sql?: SqlConfig;
   fs?: FsConfig;
   tcp?: TcpConfig;
+  ws?: WsConfig;
 }
 
 export interface CapturedRequest {
@@ -96,6 +113,11 @@ export interface ProbesInstance {
   tcp: {
     send: (params: { target: string; data: string }) => Promise<void>;
     watch: (params: { target: string; timeout_ms?: number }) => AsyncIterable<CapturedTcpData>;
+  };
+  ws: {
+    send: (params: { target: string; data: string; binary?: boolean }) => Promise<void>;
+    watch: (params: { target: string; timeout_ms?: number }) => AsyncIterable<CapturedWsMessage>;
+    reset: (params: { target: string }) => Promise<void>;
   };
   configure: (partial: Partial<ProbesConfig>) => Promise<ProbesConfig>;
   close: () => Promise<void>;
