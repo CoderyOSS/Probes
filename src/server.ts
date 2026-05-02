@@ -322,18 +322,19 @@ export async function startMcpServer(config: ProbesConfig): Promise<void> {
   );
 
   server.registerTool(
-    "ws_send",
+    "ws_server_send",
     {
       description:
-        "Send a message to all connected WebSocket clients on a target. Use binary: true to send base64-encoded bytes as a binary frame.",
+        "Send a message to all connected WebSocket clients on a server target. Use binary: true to send base64-encoded bytes as a binary frame.",
       inputSchema: {
-        target: z.string().describe("WS target name from config"),
+        target: z.string().describe("WS server target name from config"),
         data: z.string().describe("Message content (text) or base64-encoded bytes (if binary)"),
         binary: z.boolean().optional().describe("Send as binary frame (data is base64)"),
       },
     },
     async ({ target, data, binary }) => {
-      await instance.ws.send({ target, data, binary });
+      if (!instance.ws.server) throw new Error("WS server interface not configured");
+      await instance.ws.server.send({ target, data, binary });
       return {
         content: [
           {
@@ -348,12 +349,12 @@ export async function startMcpServer(config: ProbesConfig): Promise<void> {
   );
 
   server.registerTool(
-    "ws_watch",
+    "ws_server_watch",
     {
       description:
-        "Wait for an incoming WebSocket message on a target. Blocks until data arrives or timeout.",
+        "Wait for an incoming WebSocket message on a server target. Blocks until data arrives or timeout.",
       inputSchema: {
-        target: z.string().describe("WS target name from config"),
+        target: z.string().describe("WS server target name from config"),
         timeout_ms: z
           .number()
           .optional()
@@ -361,7 +362,8 @@ export async function startMcpServer(config: ProbesConfig): Promise<void> {
       },
     },
     async ({ target, timeout_ms }) => {
-      const iter = instance.ws.watch({ target, timeout_ms });
+      if (!instance.ws.server) throw new Error("WS server interface not configured");
+      const iter = instance.ws.server.watch({ target, timeout_ms });
       const result = await iter[Symbol.asyncIterator]().next();
       if (result.done) {
         return {
@@ -378,20 +380,101 @@ export async function startMcpServer(config: ProbesConfig): Promise<void> {
   );
 
   server.registerTool(
-    "ws_reset",
+    "ws_server_reset",
     {
-      description: "Clear buffered WebSocket messages for a target.",
+      description: "Clear buffered WebSocket messages for a server target.",
       inputSchema: {
-        target: z.string().describe("WS target name from config"),
+        target: z.string().describe("WS server target name from config"),
       },
     },
     async ({ target }) => {
-      await instance.ws.reset({ target });
+      if (!instance.ws.server) throw new Error("WS server interface not configured");
+      await instance.ws.server.reset({ target });
       return {
         content: [
           {
             type: "text" as const,
-            text: `WS buffer cleared for ${target}`,
+            text: `WS server buffer cleared for ${target}`,
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "ws_client_send",
+    {
+      description:
+        "Send a message to the WebSocket server on a client target. Use binary: true to send base64-encoded bytes as a binary frame.",
+      inputSchema: {
+        target: z.string().describe("WS client target name from config"),
+        data: z.string().describe("Message content (text) or base64-encoded bytes (if binary)"),
+        binary: z.boolean().optional().describe("Send as binary frame (data is base64)"),
+      },
+    },
+    async ({ target, data, binary }) => {
+      if (!instance.ws.client) throw new Error("WS client interface not configured");
+      await instance.ws.client.send({ target, data, binary });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: binary
+              ? `Sent ${Buffer.from(data, "base64").length} bytes to ${target}`
+              : `Sent text message to ${target}`,
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "ws_client_watch",
+    {
+      description:
+        "Wait for a WebSocket message from the server on a client target. Blocks until data arrives or timeout.",
+      inputSchema: {
+        target: z.string().describe("WS client target name from config"),
+        timeout_ms: z
+          .number()
+          .optional()
+          .describe("Timeout in milliseconds (default 30000)"),
+      },
+    },
+    async ({ target, timeout_ms }) => {
+      if (!instance.ws.client) throw new Error("WS client interface not configured");
+      const iter = instance.ws.client.watch({ target, timeout_ms });
+      const result = await iter[Symbol.asyncIterator]().next();
+      if (result.done) {
+        return {
+          content: [{ type: "text" as const, text: "Watch ended" }],
+        };
+      }
+      const captured: CapturedWsMessage = result.value;
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(captured, null, 2) },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "ws_client_reset",
+    {
+      description: "Clear buffered WebSocket messages for a client target.",
+      inputSchema: {
+        target: z.string().describe("WS client target name from config"),
+      },
+    },
+    async ({ target }) => {
+      if (!instance.ws.client) throw new Error("WS client interface not configured");
+      await instance.ws.client.reset({ target });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `WS client buffer cleared for ${target}`,
           },
         ],
       };

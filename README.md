@@ -47,20 +47,36 @@ for await (const chunk of p2.tcp.watch({ target: "my_service" })) {
 // Send bytes to connected clients
 await p2.tcp.send({ target: "my_service", data: Buffer.from("hello").toString("base64") });
 
-// WebSocket — mock WS server, send and watch messages
+// WebSocket — client mode: connect to external WS server
 const p3 = await probes({
-  ws: [{ name: "my_ws", port: 9001 }],
+  ws: {
+    client: [{ name: "my_app_ws", url: "ws://localhost:8080/ws" }],
+  },
 });
-// Watch incoming messages (AsyncIterable)
-for await (const msg of p3.ws.watch({ target: "my_ws" })) {
-  console.log(msg.type, msg.data); // "text" "hello" or "binary" + data_base64
+// Send messages to the server
+await p3.ws.client!.send({ target: "my_app_ws", data: "hello" });
+// Watch for messages from the server
+for await (const msg of p3.ws.client!.watch({ target: "my_app_ws" })) {
+  console.log(msg.type, msg.data);
+}
+
+// WebSocket — server mode: mock WS server for clients to connect to
+const p4 = await probes({
+  ws: {
+    server: [{ name: "mock_ws", port: 9001 }],
+  },
+});
+// Watch incoming client messages
+for await (const msg of p4.ws.server!.watch({ target: "mock_ws" })) {
+  console.log(msg.type, msg.data);
 }
 // Send to all connected clients
-await p3.ws.send({ target: "my_ws", data: "hello from server" });
+await p4.ws.server!.send({ target: "mock_ws", data: "hello from server" });
 
 await p.close();
 await p2.close();
 await p3.close();
+await p4.close();
 ```
 
 ## MCP Server
@@ -101,11 +117,15 @@ tcp:
     port: 9000
 
 ws:
-  - name: ws_api
-    port: 9001
-  - name: events
-    port: 9002
-    idle_timeout_ms: 60000
+  client:
+    - name: app_ws
+      url: "ws://localhost:8080/ws"
+  server:
+    - name: mock_ws
+      port: 9001
+    - name: events
+      port: 9002
+      idle_timeout_ms: 60000
 ```
 
 ## API
@@ -154,11 +174,23 @@ Handshake modules auto-handle initial protocol negotiation (e.g., MongoDB `ismas
 
 ### WebSocket
 
+Client mode connects to external WS servers. Server mode runs a mock WS server.
+
+**`ws.client`** — only available if `ws.client` configured
+
 | Method | Description |
 |--------|-------------|
-| `ws.send({ target, data, binary? })` | Send text or binary frame to all connected clients |
-| `ws.watch({ target, timeout_ms? })` | AsyncIterable yielding incoming messages |
-| `ws.reset({ target })` | Clear buffered messages for target |
+| `ws.client.send({ target, data, binary? })` | Send text or binary frame to the connected server |
+| `ws.client.watch({ target, timeout_ms? })` | AsyncIterable yielding messages from the server |
+| `ws.client.reset({ target })` | Clear buffered messages for target |
+
+**`ws.server`** — only available if `ws.server` configured
+
+| Method | Description |
+|--------|-------------|
+| `ws.server.send({ target, data, binary? })` | Send text or binary frame to all connected clients |
+| `ws.server.watch({ target, timeout_ms? })` | AsyncIterable yielding incoming messages |
+| `ws.server.reset({ target })` | Clear buffered messages for target |
 
 Text frames: `type: "text"`, `data` contains the string. Binary frames: `type: "binary"`, `data_base64` contains base64-encoded bytes.
 

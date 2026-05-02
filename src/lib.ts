@@ -3,7 +3,8 @@ import { createSqlInterface, type SqlActions } from "./interfaces/sql";
 import { createHttpInterface, type HttpActions } from "./interfaces/http";
 import { createFsInterface, type FsActions } from "./interfaces/fs";
 import { createTcpInterface, type TcpActions } from "./interfaces/tcp";
-import { createWsInterface, type WsActions } from "./interfaces/ws";
+import { createWsServerInterface, type WsServerActions } from "./interfaces/ws_server";
+import { createWsClientInterface, type WsClientActions } from "./interfaces/ws_client";
 import type { ProbesConfig, ProbesInstance } from "./interfaces/types";
 
 class ProbesInstanceImpl implements ProbesInstance {
@@ -12,7 +13,8 @@ class ProbesInstanceImpl implements ProbesInstance {
   private httpImpl?: HttpActions & { close: () => void };
   private fsImpl?: FsActions & { close: () => void };
   private tcpImpl?: TcpActions;
-  private wsImpl?: WsActions;
+  private wsServerImpl?: WsServerActions;
+  private wsClientImpl?: WsClientActions;
 
   constructor(config: ProbesConfig) {
     this.config = config;
@@ -31,11 +33,14 @@ class ProbesInstanceImpl implements ProbesInstance {
     if (this.config.tcp) {
       this.tcpImpl = createTcpInterface(this.config.tcp);
     }
-    if (this.config.ws) {
-      this.wsImpl = createWsInterface(this.config.ws);
+    if (this.config.ws?.server) {
+      this.wsServerImpl = createWsServerInterface(this.config.ws.server);
+    }
+    if (this.config.ws?.client) {
+      this.wsClientImpl = await createWsClientInterface(this.config.ws.client);
     }
 
-    if (!this.sqlImpl && !this.httpImpl && !this.fsImpl && !this.tcpImpl && !this.wsImpl) {
+    if (!this.sqlImpl && !this.httpImpl && !this.fsImpl && !this.tcpImpl && !this.wsServerImpl && !this.wsClientImpl) {
       throw new Error("At least one interface must be configured (http, sql, fs, tcp, or ws)");
     }
   }
@@ -79,11 +84,18 @@ class ProbesInstanceImpl implements ProbesInstance {
   }
 
   get ws(): ProbesInstance["ws"] {
-    if (!this.wsImpl) throw new Error("WS interface not configured");
+    if (!this.wsServerImpl && !this.wsClientImpl) throw new Error("WS interface not configured");
     return {
-      send: (p) => this.wsImpl!.send(p),
-      watch: (p) => this.wsImpl!.watch(p),
-      reset: (p) => this.wsImpl!.reset(p),
+      client: this.wsClientImpl ? {
+        send: (p) => this.wsClientImpl!.send(p),
+        watch: (p) => this.wsClientImpl!.watch(p),
+        reset: (p) => this.wsClientImpl!.reset(p),
+      } : undefined,
+      server: this.wsServerImpl ? {
+        send: (p) => this.wsServerImpl!.send(p),
+        watch: (p) => this.wsServerImpl!.watch(p),
+        reset: (p) => this.wsServerImpl!.reset(p),
+      } : undefined,
     };
   }
 
@@ -112,13 +124,16 @@ class ProbesInstanceImpl implements ProbesInstance {
       this.fsImpl = createFsInterface(validated.fs!);
     }
     if (partial.tcp) {
-    this.tcpImpl?.close();
-    this.wsImpl?.close();
+      this.tcpImpl?.close();
       this.tcpImpl = createTcpInterface(validated.tcp!);
     }
-    if (partial.ws) {
-      this.wsImpl?.close();
-      this.wsImpl = createWsInterface(validated.ws!);
+    if (partial.ws?.server) {
+      this.wsServerImpl?.close();
+      this.wsServerImpl = createWsServerInterface(validated.ws!.server!);
+    }
+    if (partial.ws?.client) {
+      this.wsClientImpl?.close();
+      this.wsClientImpl = await createWsClientInterface(validated.ws!.client!);
     }
 
     this.config = validated;
@@ -130,7 +145,8 @@ class ProbesInstanceImpl implements ProbesInstance {
     this.httpImpl?.close();
     this.fsImpl?.close();
     this.tcpImpl?.close();
-    this.wsImpl?.close();
+    this.wsServerImpl?.close();
+    this.wsClientImpl?.close();
   }
 }
 

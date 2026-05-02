@@ -1,6 +1,6 @@
-import type { WsTargetConfig, CapturedWsMessage } from "./types";
+import type { WsServerTargetConfig, CapturedWsMessage } from "./types";
 
-export interface WsActions {
+export interface WsServerActions {
   send: (params: { target: string; data: string; binary?: boolean }) => Promise<void>;
   watch: (params: {
     target: string;
@@ -19,7 +19,7 @@ interface TargetState {
   buffered: CapturedWsMessage | null;
 }
 
-export function createWsInterface(targets: WsTargetConfig[]): WsActions {
+export function createWsServerInterface(targets: WsServerTargetConfig[]): WsServerActions {
   const targetMap = new Map<string, TargetState>();
 
   for (const targetConfig of targets) {

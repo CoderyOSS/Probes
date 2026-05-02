@@ -5,10 +5,10 @@ import type { ProbesInstance } from "../src/interfaces/types";
 const WS_PORT = 19577;
 let p: ProbesInstance;
 
-describe("WS interface", () => {
+describe("WS server interface", () => {
   beforeAll(async () => {
     p = await probes({
-      ws: [{ name: "test_ws", port: WS_PORT }],
+      ws: { server: [{ name: "test_ws", port: WS_PORT }] },
     });
   });
 
@@ -24,7 +24,7 @@ describe("WS interface", () => {
     });
 
     const watchPromise = (async () => {
-      const iter = p.ws.watch({ target: "test_ws", timeout_ms: 5000 });
+      const iter = p.ws.server!.watch({ target: "test_ws", timeout_ms: 5000 });
       const result = await iter[Symbol.asyncIterator]().next();
       return result.value;
     })();
@@ -50,7 +50,7 @@ describe("WS interface", () => {
       ws.addEventListener("open", () => resolve(), { once: true });
     });
 
-    await p.ws.send({ target: "test_ws", data: "from server" });
+    await p.ws.server!.send({ target: "test_ws", data: "from server" });
 
     const received = await messagePromise;
     expect(received).toBe("from server");
@@ -70,7 +70,7 @@ describe("WS interface", () => {
     });
 
     const binaryData = Buffer.from([0x01, 0x02, 0x03]).toString("base64");
-    await p.ws.send({ target: "test_ws", data: binaryData, binary: true });
+    await p.ws.server!.send({ target: "test_ws", data: binaryData, binary: true });
 
     const received = await messagePromise;
     expect(new Uint8Array(received)).toEqual(new Uint8Array([0x01, 0x02, 0x03]));
@@ -86,7 +86,7 @@ describe("WS interface", () => {
     });
 
     const watchPromise = (async () => {
-      const iter = p.ws.watch({ target: "test_ws", timeout_ms: 5000 });
+      const iter = p.ws.server!.watch({ target: "test_ws", timeout_ms: 5000 });
       const result = await iter[Symbol.asyncIterator]().next();
       return result.value;
     })();
@@ -113,9 +113,9 @@ describe("WS interface", () => {
     ws.send("buffer me");
     await new Promise((r) => setTimeout(r, 100));
 
-    await p.ws.reset({ target: "test_ws" });
+    await p.ws.server!.reset({ target: "test_ws" });
 
-    const iter = p.ws.watch({ target: "test_ws", timeout_ms: 500 });
+    const iter = p.ws.server!.watch({ target: "test_ws", timeout_ms: 500 });
     await expect(
       iter[Symbol.asyncIterator]().next()
     ).rejects.toThrow(/timeout/i);
@@ -125,7 +125,7 @@ describe("WS interface", () => {
 
   test("target not found throws", async () => {
     await expect(
-      p.ws.send({ target: "nonexistent", data: "test" })
+      p.ws.server!.send({ target: "nonexistent", data: "test" })
     ).rejects.toThrow("WS target not found: nonexistent");
   });
 });

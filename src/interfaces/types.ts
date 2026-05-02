@@ -33,13 +33,25 @@ export interface TcpTargetConfig {
 
 export type TcpConfig = TcpTargetConfig[];
 
-export interface WsTargetConfig {
+export interface WsServerTargetConfig {
   name: string;
   port: number;
   idle_timeout_ms?: number;
 }
 
-export type WsConfig = WsTargetConfig[];
+export type WsServerConfig = WsServerTargetConfig[];
+
+export interface WsClientTargetConfig {
+  name: string;
+  url: string;
+}
+
+export type WsClientConfig = WsClientTargetConfig[];
+
+export interface WsConfig {
+  client?: WsClientConfig;
+  server?: WsServerConfig;
+}
 
 export interface CapturedWsMessage {
   data: string;
@@ -115,9 +127,16 @@ export interface ProbesInstance {
     watch: (params: { target: string; timeout_ms?: number }) => AsyncIterable<CapturedTcpData>;
   };
   ws: {
-    send: (params: { target: string; data: string; binary?: boolean }) => Promise<void>;
-    watch: (params: { target: string; timeout_ms?: number }) => AsyncIterable<CapturedWsMessage>;
-    reset: (params: { target: string }) => Promise<void>;
+    client?: {
+      send: (params: { target: string; data: string; binary?: boolean }) => Promise<void>;
+      watch: (params: { target: string; timeout_ms?: number }) => AsyncIterable<CapturedWsMessage>;
+      reset: (params: { target: string }) => Promise<void>;
+    };
+    server?: {
+      send: (params: { target: string; data: string; binary?: boolean }) => Promise<void>;
+      watch: (params: { target: string; timeout_ms?: number }) => AsyncIterable<CapturedWsMessage>;
+      reset: (params: { target: string }) => Promise<void>;
+    };
   };
   configure: (partial: Partial<ProbesConfig>) => Promise<ProbesConfig>;
   close: () => Promise<void>;

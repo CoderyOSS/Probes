@@ -51,19 +51,37 @@ const TcpSchema = z.array(TcpTargetSchema).min(1).refine(
   { message: "TCP target names must be unique" }
 );
 
-const WsTargetSchema = z.object({
+const WsServerTargetSchema = z.object({
   name: z.string().min(1),
   port: z.number().int().min(1).max(65535),
   idle_timeout_ms: z.number().int().positive().optional(),
 });
 
-const WsSchema = z.array(WsTargetSchema).min(1).refine(
+const WsServerSchema = z.array(WsServerTargetSchema).min(1).refine(
   (targets) => {
     const names = targets.map((t) => t.name);
     return new Set(names).size === names.length;
   },
-  { message: "WS target names must be unique" }
+  { message: "WS server target names must be unique" }
 );
+
+const WsClientTargetSchema = z.object({
+  name: z.string().min(1),
+  url: z.string().min(1),
+});
+
+const WsClientSchema = z.array(WsClientTargetSchema).min(1).refine(
+  (targets) => {
+    const names = targets.map((t) => t.name);
+    return new Set(names).size === names.length;
+  },
+  { message: "WS client target names must be unique" }
+);
+
+const WsSchema = z.object({
+  client: WsClientSchema.optional(),
+  server: WsServerSchema.optional(),
+});
 
 const ProbesConfigSchema = z
   .object({
