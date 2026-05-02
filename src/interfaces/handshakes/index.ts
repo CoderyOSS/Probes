@@ -21,3 +21,6 @@ export function getRegisteredHandshakes(): string[] {
 
 import rawHandshake from "./raw.js";
 registerHandshake(rawHandshake);
+
+import mongodbHandshake from "./mongodb.js";
+registerHandshake(mongodbHandshake);

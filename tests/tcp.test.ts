@@ -192,5 +192,67 @@ describe("handshake registry", () => {
   it("lists registered handshakes", () => {
     const names = getRegisteredHandshakes();
     expect(names).toContain("raw");
+    expect(names).toContain("mongodb");
+  });
+});
+
+function int32Bytes(n: number): Uint8Array {
+  const buf = new Uint8Array(4);
+  buf[0] = n & 0xff;
+  buf[1] = (n >> 8) & 0xff;
+  buf[2] = (n >> 16) & 0xff;
+  buf[3] = (n >> 24) & 0xff;
+  return buf;
+}
+
+function buildIsmasterCommand(): Buffer {
+  const elements: Buffer[] = [];
+  elements.push(Buffer.concat([Buffer.from([0x10]), Buffer.from("ismaster\x00"), Buffer.from(int32Bytes(1))]));
+  elements.push(Buffer.concat([Buffer.from([0x08]), Buffer.from("helloOk\x00"), Buffer.from([0x01])]));
+  const body = Buffer.concat(elements);
+  const length = Buffer.alloc(4);
+  length.writeInt32LE(body.length + 5, 0);
+  return Buffer.concat([length, body, Buffer.from([0x00])]);
+}
+
+describe("mongodb handshake", () => {
+  it("completes handshake and sends response", async () => {
+    const tcp = createTcpInterface([
+      { name: "mongo", port: 29010, handshake: "mongodb" },
+    ]);
+
+    try {
+      const received = await new Promise<boolean>((resolve, reject) => {
+        const client = createConnection({ port: 29010, host: "127.0.0.1" }, () => {
+          const bsonBody = buildIsmasterCommand();
+          const section = Buffer.concat([
+            Buffer.from([0x00]),
+            Buffer.from(int32Bytes(bsonBody.length)),
+            bsonBody,
+          ]);
+          const opMsgBody = Buffer.concat([Buffer.from(int32Bytes(0)), section]);
+          const header = Buffer.alloc(16);
+          header.writeInt32LE(16 + opMsgBody.length, 0);
+          header.writeInt32LE(42, 4);
+          header.writeInt32LE(0, 8);
+          header.writeInt32LE(2013, 12);
+          client.write(Buffer.concat([header, opMsgBody]));
+        });
+
+        client.on("data", (data: Buffer) => {
+          expect(data.readInt32LE(12)).toBe(2013);
+          expect(data.readInt32LE(8)).toBe(42);
+          resolve(true);
+          client.destroy();
+        });
+
+        client.on("error", reject);
+        setTimeout(() => { client.destroy(); reject(new Error("timeout")); }, 3000);
+      });
+
+      expect(received).toBe(true);
+    } finally {
+      tcp.close();
+    }
   });
 });
