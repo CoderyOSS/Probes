@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "bun:test";
+import { createConnection } from "node:net";
 import { probes } from "../src/lib";
 import type { ProbesInstance } from "../src/interfaces/types";
 
@@ -83,5 +84,27 @@ describe("probes() factory", () => {
 
   it("throws when no interface configured", async () => {
     expect(probes({})).rejects.toThrow();
+  });
+
+  it("creates instance with tcp only", async () => {
+    const p = track(
+      await probes({
+        tcp: [{ name: "test_tcp", port: 29877 }],
+      })
+    );
+
+    const watchIter = p.tcp.watch({ target: "test_tcp", timeout_ms: 3000 });
+    const watchPromise = watchIter[Symbol.asyncIterator]().next();
+
+    await new Promise<void>((resolve) => {
+      const client = createConnection({ port: 29877, host: "127.0.0.1" }, () => {
+        client.write(Buffer.from("lib test"));
+        setTimeout(() => client.destroy(), 200);
+        resolve();
+      });
+    });
+
+    const result = await watchPromise;
+    expect(Buffer.from(result.value.data, "base64").toString()).toBe("lib test");
   });
 });

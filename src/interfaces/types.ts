@@ -31,9 +31,7 @@ export interface TcpTargetConfig {
   idle_timeout_ms?: number;
 }
 
-export interface TcpConfig {
-  tcp: TcpTargetConfig[];
-}
+export type TcpConfig = TcpTargetConfig[];
 
 export interface CapturedTcpData {
   data: string;

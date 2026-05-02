@@ -27,7 +27,7 @@ class ProbesInstanceImpl implements ProbesInstance {
       this.fsImpl = createFsInterface(this.config.fs);
     }
     if (this.config.tcp) {
-      this.tcpImpl = createTcpInterface(this.config.tcp.tcp);
+      this.tcpImpl = createTcpInterface(this.config.tcp);
     }
 
     if (!this.sqlImpl && !this.httpImpl && !this.fsImpl && !this.tcpImpl) {
@@ -98,7 +98,7 @@ class ProbesInstanceImpl implements ProbesInstance {
     }
     if (partial.tcp) {
       this.tcpImpl?.close();
-      this.tcpImpl = createTcpInterface(validated.tcp!.tcp);
+      this.tcpImpl = createTcpInterface(validated.tcp!);
     }
 
     this.config = validated;

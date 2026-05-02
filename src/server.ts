@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { probes } from "./lib.js";
-import type { ProbesConfig } from "./interfaces/types.js";
+import type { CapturedTcpData, ProbesConfig } from "./interfaces/types.js";
 
 export async function startMcpServer(config: ProbesConfig): Promise<void> {
   const instance = await probes(config);
@@ -263,6 +263,59 @@ export async function startMcpServer(config: ProbesConfig): Promise<void> {
             type: "text" as const,
             text: path ? `Deleted ${path}` : "Root wiped",
           },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "tcp_send",
+    {
+      description:
+        "Send base64-encoded bytes to all connected clients on a TCP target.",
+      inputSchema: {
+        target: z.string().describe("TCP target name from config"),
+        data: z.string().describe("Base64-encoded bytes to send"),
+      },
+    },
+    async ({ target, data }) => {
+      await instance.tcp.send({ target, data });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Sent ${Buffer.from(data, "base64").length} bytes to ${target}`,
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "tcp_watch",
+    {
+      description:
+        "Wait for incoming data on a TCP target. Blocks until data arrives or timeout.",
+      inputSchema: {
+        target: z.string().describe("TCP target name from config"),
+        timeout_ms: z
+          .number()
+          .optional()
+          .describe("Timeout in milliseconds (default 30000)"),
+      },
+    },
+    async ({ target, timeout_ms }) => {
+      const iter = instance.tcp.watch({ target, timeout_ms });
+      const result = await iter[Symbol.asyncIterator]().next();
+      if (result.done) {
+        return {
+          content: [{ type: "text" as const, text: "Watch ended" }],
+        };
+      }
+      const captured: CapturedTcpData = result.value;
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(captured, null, 2) },
         ],
       };
     }
