@@ -1,7 +1,7 @@
 {
   "name": "@codery/probes",
   "version": "0.1.0",
-  "description": "MCP server and library for E2E continuous testing — HTTP, SQL, FS",
+  "description": "MCP server and library for E2E continuous testing — HTTP, SQL, FS, TCP, WebSocket",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -34,6 +34,7 @@
     "probes",
     "http",
     "sqlite",
-    "filesystem"
+    "filesystem",
+    "websocket"
   ]
 }

@@ -47,8 +47,20 @@ for await (const chunk of p2.tcp.watch({ target: "my_service" })) {
 // Send bytes to connected clients
 await p2.tcp.send({ target: "my_service", data: Buffer.from("hello").toString("base64") });
 
+// WebSocket — mock WS server, send and watch messages
+const p3 = await probes({
+  ws: [{ name: "my_ws", port: 9001 }],
+});
+// Watch incoming messages (AsyncIterable)
+for await (const msg of p3.ws.watch({ target: "my_ws" })) {
+  console.log(msg.type, msg.data); // "text" "hello" or "binary" + data_base64
+}
+// Send to all connected clients
+await p3.ws.send({ target: "my_ws", data: "hello from server" });
+
 await p.close();
 await p2.close();
+await p3.close();
 ```
 
 ## MCP Server
@@ -87,6 +99,13 @@ tcp:
     handshake: redis
   - name: raw_tcp
     port: 9000
+
+ws:
+  - name: ws_api
+    port: 9001
+  - name: events
+    port: 9002
+    idle_timeout_ms: 60000
 ```
 
 ## API
@@ -132,6 +151,16 @@ Creates and initializes a probes instance. At least one interface must be config
 **Handshake modules:** `raw` (default), `mongodb`, `redis`, `postgresql`
 
 Handshake modules auto-handle initial protocol negotiation (e.g., MongoDB `ismaster`, Redis `PING`). After handshake, `watch()` and `send()` operate on raw bytes.
+
+### WebSocket
+
+| Method | Description |
+|--------|-------------|
+| `ws.send({ target, data, binary? })` | Send text or binary frame to all connected clients |
+| `ws.watch({ target, timeout_ms? })` | AsyncIterable yielding incoming messages |
+| `ws.reset({ target })` | Clear buffered messages for target |
+
+Text frames: `type: "text"`, `data` contains the string. Binary frames: `type: "binary"`, `data_base64` contains base64-encoded bytes.
 
 ## License
 
