@@ -2,6 +2,7 @@ import { validateConfig, loadConfig } from "./config";
 import { createSqlInterface, type SqlActions } from "./interfaces/sql";
 import { createHttpInterface, type HttpActions } from "./interfaces/http";
 import { createFsInterface, type FsActions } from "./interfaces/fs";
+import { createTcpInterface, type TcpActions } from "./interfaces/tcp";
 import type { ProbesConfig, ProbesInstance } from "./interfaces/types";
 
 class ProbesInstanceImpl implements ProbesInstance {
@@ -9,6 +10,7 @@ class ProbesInstanceImpl implements ProbesInstance {
   private sqlImpl?: SqlActions & { close: () => void };
   private httpImpl?: HttpActions & { close: () => void };
   private fsImpl?: FsActions & { close: () => void };
+  private tcpImpl?: TcpActions;
 
   constructor(config: ProbesConfig) {
     this.config = config;
@@ -24,9 +26,12 @@ class ProbesInstanceImpl implements ProbesInstance {
     if (this.config.fs) {
       this.fsImpl = createFsInterface(this.config.fs);
     }
+    if (this.config.tcp) {
+      this.tcpImpl = createTcpInterface(this.config.tcp.tcp);
+    }
 
-    if (!this.sqlImpl && !this.httpImpl && !this.fsImpl) {
-      throw new Error("At least one interface must be configured (http, sql, or fs)");
+    if (!this.sqlImpl && !this.httpImpl && !this.fsImpl && !this.tcpImpl) {
+      throw new Error("At least one interface must be configured (http, sql, fs, or tcp)");
     }
   }
 
@@ -60,6 +65,14 @@ class ProbesInstanceImpl implements ProbesInstance {
     };
   }
 
+  get tcp(): ProbesInstance["tcp"] {
+    if (!this.tcpImpl) throw new Error("TCP interface not configured");
+    return {
+      send: (p) => this.tcpImpl!.send(p),
+      watch: (p) => this.tcpImpl!.watch(p),
+    };
+  }
+
   async configure(partial: Partial<ProbesConfig>): Promise<ProbesConfig> {
     const merged: ProbesConfig = {
       ...this.config,
@@ -83,6 +96,10 @@ class ProbesInstanceImpl implements ProbesInstance {
       this.fsImpl?.close();
       this.fsImpl = createFsInterface(validated.fs!);
     }
+    if (partial.tcp) {
+      this.tcpImpl?.close();
+      this.tcpImpl = createTcpInterface(validated.tcp!.tcp);
+    }
 
     this.config = validated;
     return { ...validated };
@@ -92,6 +109,7 @@ class ProbesInstanceImpl implements ProbesInstance {
     this.sqlImpl?.close();
     this.httpImpl?.close();
     this.fsImpl?.close();
+    this.tcpImpl?.close();
   }
 }
 
