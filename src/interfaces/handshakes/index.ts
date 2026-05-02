@@ -24,3 +24,6 @@ registerHandshake(rawHandshake);
 
 import mongodbHandshake from "./mongodb.js";
 registerHandshake(mongodbHandshake);
+
+import redisHandshake from "./redis.js";
+registerHandshake(redisHandshake);

@@ -193,6 +193,7 @@ describe("handshake registry", () => {
     const names = getRegisteredHandshakes();
     expect(names).toContain("raw");
     expect(names).toContain("mongodb");
+    expect(names).toContain("redis");
   });
 });
 
@@ -251,6 +252,56 @@ describe("mongodb handshake", () => {
       });
 
       expect(received).toBe(true);
+    } finally {
+      tcp.close();
+    }
+  });
+});
+
+describe("redis handshake", () => {
+  it("responds to PING with PONG", async () => {
+    const tcp = createTcpInterface([
+      { name: "redis", port: 29011, handshake: "redis" },
+    ]);
+
+    try {
+      const response = await new Promise<string>((resolve, reject) => {
+        const client = createConnection({ port: 29011, host: "127.0.0.1" }, () => {
+          client.write(Buffer.from("*1\r\n$4\r\nPING\r\n"));
+        });
+        client.on("data", (data: Buffer) => {
+          resolve(data.toString());
+          client.destroy();
+        });
+        client.on("error", reject);
+        setTimeout(() => { client.destroy(); reject(new Error("timeout")); }, 3000);
+      });
+
+      expect(response).toBe("+PONG\r\n");
+    } finally {
+      tcp.close();
+    }
+  });
+
+  it("responds to AUTH with OK", async () => {
+    const tcp = createTcpInterface([
+      { name: "redis_auth", port: 29012, handshake: "redis" },
+    ]);
+
+    try {
+      const response = await new Promise<string>((resolve, reject) => {
+        const client = createConnection({ port: 29012, host: "127.0.0.1" }, () => {
+          client.write(Buffer.from("*2\r\n$4\r\nAUTH\r\n$8\r\nanytoken\r\n"));
+        });
+        client.on("data", (data: Buffer) => {
+          resolve(data.toString());
+          client.destroy();
+        });
+        client.on("error", reject);
+        setTimeout(() => { client.destroy(); reject(new Error("timeout")); }, 3000);
+      });
+
+      expect(response).toBe("+OK\r\n");
     } finally {
       tcp.close();
     }
