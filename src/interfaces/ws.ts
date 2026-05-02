@@ -42,19 +42,19 @@ export function createWsInterface(targets: WsTargetConfig[]): WsActions {
         return undefined as any;
       },
       websocket: {
-        open(ws) {
+        open(ws: any) {
           state.sockets.add(ws);
           if (targetConfig.idle_timeout_ms) {
-            ws.timeout(targetConfig.idle_timeout_ms / 1000);
+            (ws as any).timeout(targetConfig.idle_timeout_ms / 1000);
           }
         },
-        message(ws, message) {
+        message(ws: any, message: string | ArrayBuffer) {
           const isBinary = typeof message !== "string";
           const captured: CapturedWsMessage = {
             data: isBinary ? "" : (message as string),
-            ...(isBinary ? { data_base64: Buffer.from(message as ArrayBuffer).toString("base64") } : {}),
+            ...(isBinary ? { data_base64: Buffer.from(message as unknown as ArrayBuffer).toString("base64") } : {}),
             timestamp: Date.now(),
-            remote: ws.remoteAddress,
+            remote: (ws as any).remoteAddress as string,
             type: isBinary ? "binary" : "text",
           };
 
@@ -66,13 +66,10 @@ export function createWsInterface(targets: WsTargetConfig[]): WsActions {
             state.buffered = captured;
           }
         },
-        close(ws) {
+        close(ws: any) {
           state.sockets.delete(ws);
         },
-        timeout(ws) {
-          ws.close();
-        },
-      },
+      } as any,
     });
 
     state.server = server;

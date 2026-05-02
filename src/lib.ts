@@ -3,6 +3,7 @@ import { createSqlInterface, type SqlActions } from "./interfaces/sql";
 import { createHttpInterface, type HttpActions } from "./interfaces/http";
 import { createFsInterface, type FsActions } from "./interfaces/fs";
 import { createTcpInterface, type TcpActions } from "./interfaces/tcp";
+import { createWsInterface, type WsActions } from "./interfaces/ws";
 import type { ProbesConfig, ProbesInstance } from "./interfaces/types";
 
 class ProbesInstanceImpl implements ProbesInstance {
@@ -11,6 +12,7 @@ class ProbesInstanceImpl implements ProbesInstance {
   private httpImpl?: HttpActions & { close: () => void };
   private fsImpl?: FsActions & { close: () => void };
   private tcpImpl?: TcpActions;
+  private wsImpl?: WsActions;
 
   constructor(config: ProbesConfig) {
     this.config = config;
@@ -29,9 +31,12 @@ class ProbesInstanceImpl implements ProbesInstance {
     if (this.config.tcp) {
       this.tcpImpl = createTcpInterface(this.config.tcp);
     }
+    if (this.config.ws) {
+      this.wsImpl = createWsInterface(this.config.ws);
+    }
 
-    if (!this.sqlImpl && !this.httpImpl && !this.fsImpl && !this.tcpImpl) {
-      throw new Error("At least one interface must be configured (http, sql, fs, or tcp)");
+    if (!this.sqlImpl && !this.httpImpl && !this.fsImpl && !this.tcpImpl && !this.wsImpl) {
+      throw new Error("At least one interface must be configured (http, sql, fs, tcp, or ws)");
     }
   }
 
@@ -73,6 +78,15 @@ class ProbesInstanceImpl implements ProbesInstance {
     };
   }
 
+  get ws(): ProbesInstance["ws"] {
+    if (!this.wsImpl) throw new Error("WS interface not configured");
+    return {
+      send: (p) => this.wsImpl!.send(p),
+      watch: (p) => this.wsImpl!.watch(p),
+      reset: (p) => this.wsImpl!.reset(p),
+    };
+  }
+
   async configure(partial: Partial<ProbesConfig>): Promise<ProbesConfig> {
     const merged: ProbesConfig = {
       ...this.config,
@@ -80,6 +94,7 @@ class ProbesInstanceImpl implements ProbesInstance {
       http: this.config.http || partial.http ? { ...this.config.http, ...partial.http } as ProbesConfig["http"] : undefined,
       sql: this.config.sql || partial.sql ? { ...this.config.sql, ...partial.sql } as ProbesConfig["sql"] : undefined,
       fs: this.config.fs || partial.fs ? { ...this.config.fs, ...partial.fs } as ProbesConfig["fs"] : undefined,
+      ws: partial.ws ?? this.config.ws,
     };
 
     const validated = validateConfig(merged);
@@ -97,8 +112,13 @@ class ProbesInstanceImpl implements ProbesInstance {
       this.fsImpl = createFsInterface(validated.fs!);
     }
     if (partial.tcp) {
-      this.tcpImpl?.close();
+    this.tcpImpl?.close();
+    this.wsImpl?.close();
       this.tcpImpl = createTcpInterface(validated.tcp!);
+    }
+    if (partial.ws) {
+      this.wsImpl?.close();
+      this.wsImpl = createWsInterface(validated.ws!);
     }
 
     this.config = validated;
