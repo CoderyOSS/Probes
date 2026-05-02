@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { validateConfig } from "../src/config";
 import { createTcpInterface } from "../src/interfaces/tcp";
+import { resolveHandshake, getRegisteredHandshakes } from "../src/interfaces/handshakes/index";
 import { createConnection } from "node:net";
 
 describe("tcp config validation", () => {
@@ -173,5 +174,23 @@ describe("tcp raw interface", () => {
     } finally {
       tcp.close();
     }
+  });
+});
+
+describe("handshake registry", () => {
+  it("resolves raw handshake", () => {
+    const mod = resolveHandshake("raw");
+    expect(mod).not.toBeNull();
+    expect(mod!.name).toBe("raw");
+  });
+
+  it("returns null for unknown handshake", () => {
+    const mod = resolveHandshake("totally_fake");
+    expect(mod).toBeNull();
+  });
+
+  it("lists registered handshakes", () => {
+    const names = getRegisteredHandshakes();
+    expect(names).toContain("raw");
   });
 });

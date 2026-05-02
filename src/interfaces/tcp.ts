@@ -1,5 +1,6 @@
 import { createServer, type Socket } from "node:net";
 import type { TcpTargetConfig, CapturedTcpData } from "./types";
+import { resolveHandshake } from "./handshakes/index.js";
 
 export interface TcpActions {
   send: (params: { target: string; data: string }) => Promise<void>;
@@ -33,8 +34,20 @@ export function createTcpInterface(targets: TcpTargetConfig[]): TcpActions {
       buffered: null,
     };
 
-    server.on("connection", (socket: Socket) => {
+    server.on("connection", async (socket: Socket) => {
       state.sockets.add(socket);
+
+      const handshakeName = targetConfig.handshake ?? "raw";
+      const handshakeMod = resolveHandshake(handshakeName);
+      if (handshakeMod) {
+        try {
+          await handshakeMod.handle(socket);
+        } catch {
+          socket.destroy();
+          state.sockets.delete(socket);
+          return;
+        }
+      }
 
       socket.on("data", (raw: Buffer) => {
         const captured: CapturedTcpData = {
