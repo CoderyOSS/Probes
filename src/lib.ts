@@ -130,6 +130,7 @@ class ProbesInstanceImpl implements ProbesInstance {
     this.httpImpl?.close();
     this.fsImpl?.close();
     this.tcpImpl?.close();
+    this.wsImpl?.close();
   }
 }
 
