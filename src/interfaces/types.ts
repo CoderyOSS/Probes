@@ -24,10 +24,28 @@ export interface FsConfig {
   reset_on_start?: boolean;
 }
 
+export interface TcpTargetConfig {
+  name: string;
+  port: number;
+  handshake?: string;
+  idle_timeout_ms?: number;
+}
+
+export interface TcpConfig {
+  tcp: TcpTargetConfig[];
+}
+
+export interface CapturedTcpData {
+  data: string;
+  timestamp: number;
+  remote: string;
+}
+
 export interface ProbesConfig {
   http?: HttpConfig;
   sql?: SqlConfig;
   fs?: FsConfig;
+  tcp?: TcpConfig;
 }
 
 export interface CapturedRequest {
@@ -76,6 +94,10 @@ export interface ProbesInstance {
     read: (params: { path: string }) => Promise<string>;
     watch: (params: { path: string; timeout_ms?: number }) => Promise<string>;
     reset: (params?: { path?: string }) => Promise<void>;
+  };
+  tcp: {
+    send: (params: { target: string; data: string }) => Promise<void>;
+    watch: (params: { target: string; timeout_ms?: number }) => AsyncIterable<CapturedTcpData>;
   };
   configure: (partial: Partial<ProbesConfig>) => Promise<ProbesConfig>;
   close: () => Promise<void>;

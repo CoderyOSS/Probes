@@ -36,11 +36,27 @@ const FsSchema = z.object({
   reset_on_start: z.boolean().optional(),
 });
 
+const TcpTargetSchema = z.object({
+  name: z.string().min(1),
+  port: z.number().int().min(1).max(65535),
+  handshake: z.string().optional(),
+  idle_timeout_ms: z.number().int().positive().optional(),
+});
+
+const TcpSchema = z.array(TcpTargetSchema).min(1).refine(
+  (targets) => {
+    const names = targets.map((t) => t.name);
+    return new Set(names).size === names.length;
+  },
+  { message: "TCP target names must be unique" }
+);
+
 const ProbesConfigSchema = z
   .object({
     http: HttpSchema.optional(),
     sql: SqlSchema.optional(),
     fs: FsSchema.optional(),
+    tcp: TcpSchema.optional(),
   })
   .strict();
 
