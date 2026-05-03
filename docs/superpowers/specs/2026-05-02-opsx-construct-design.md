@@ -118,7 +118,7 @@ Location: `.openspec/tmp/construct-state.json`
 ```json
 {
   "version": 1,
-  "status": "running | paused | aborted | complete",
+  "status": "running | paused | halted | aborted | complete",
   "project": "string (from openspec config)",
   "config": {
     "max_parallel": 3,
@@ -145,13 +145,20 @@ Location: `.openspec/tmp/construct-state.json`
       "test_files": ["path"],
       "phase": "implementing | reviewing | approved | merged",
       "state": "S2.3",
-      "status": "pending | in_progress | crashed | reviewing | approved | merged",
+      "status": "pending | in_progress | crashed | reviewing | approved | merged | halted",
       "branch": "string | null",
       "teammate": "string | null",
       "attempts": 1,
       "review_rounds": 0,
       "test_results": { "pass": 0, "fail": 0 } | null,
       "error": "string | null",
+      "state_note": "string | null",
+      "halt_context": {
+        "completed_steps": ["S2.1"],
+        "next_step": "S3.2 — description",
+        "branch_state": "string",
+        "artifacts_preserved": true
+      } | null,
       "updated_at": "ISO8601"
     }
   ],
@@ -190,11 +197,70 @@ Location: `.openspec/tmp/construct-state.json`
 }
 ```
 
+## Pause Strategy
+
+Two pause modes for stopping the workflow without losing progress.
+
+### Soft Pause (`--pause`)
+
+- Set `status: "paused"` in state file
+- **Don't spawn** any new teammates from the work queue
+- Let all in-progress teammates finish naturally (implementation, test runs, current work)
+- Lead stops dispatching review subagents
+- Teammates that finish while paused → status updated to `approved` or `pending_review` in work queue, but no next phase starts
+- Resume picks up wherever the queue left off
+
+### Hard Halt (`--halt`)
+
+- Set `status: "halted"` in state file
+- `team_shutdown --force` all teammates (branches preserved by ensemble)
+- For each work queue item, write granular state notes via `halt_context`:
+
+```json
+{
+  "id": "WQ-002",
+  "status": "halted",
+  "state_note": "implementation complete, tests passing, pending pre-merge review",
+  "phase": "reviewing",
+  "state": "S3.1",
+  "halt_context": {
+    "completed_steps": ["S2.1", "S2.2", "S2.3", "S2.4"],
+    "next_step": "S3.2 — round-robin subagent review of branch diff",
+    "branch_state": "clean, 12 commits, all relevant tests passing",
+    "artifacts_preserved": true
+  }
+}
+```
+
+- State notes are per-WQ-item, so resume knows exactly what to skip and what to run
+- Resume reads `halt_context.next_step` for each item and picks up there
+
+### Resume Behavior by Status
+
+| Status | Resume behavior |
+|--------|-----------------|
+| `paused` | Re-attach to any still-running teammates via `team_status`, resume dispatching new work |
+| `halted` | No live teammates. Read `halt_context` per WQ item. Skip completed steps, resume at `next_step` |
+
+### Status Values
+
+```
+running | paused | halted | aborted | complete
+```
+
+- `running` — active workflow
+- `paused` — soft pause: current jobs finishing, no new spawns
+- `halted` — hard stop: everything stopped, granular state saved
+- `aborted` — from human gate abort (state preserved for inspection)
+- `complete` — all layers done
+
 ## CLI Interface
 
 ```
 /opsx-construct                          # Fresh start. Abort if state file exists.
-/opsx-construct --resume                 # Resume from state file.
+/opsx-construct --pause                  # Soft pause: let current jobs finish, no new spawns.
+/opsx-construct --halt                   # Hard halt: stop everything, save granular state notes.
+/opsx-construct --resume                 # Resume from paused or halted state.
 /opsx-construct --resume --layer 3       # Resume at specific layer.
 /opsx-construct --max-parallel 2         # Override max parallel tasks.
 /opsx-construct --resume --max-parallel 1 # Resume with reduced parallelism.
@@ -205,13 +271,17 @@ Location: `.openspec/tmp/construct-state.json`
 On `--resume`:
 
 1. Load state file
-2. Check ensemble team status — verify or recover teammate sessions
+2. Check `status`:
+   - `paused` → re-attach to live teammates, resume dispatching
+   - `halted` → no live teammates, proceed to step 3 with halt_context
 3. Scan work queue:
-   - `in_progress` → check if teammate alive (team_status). Alive → re-attach. Dead → mark crashed.
+   - `in_progress` + `paused` → check if teammate alive (team_status). Alive → re-attach. Dead → mark crashed.
+   - `in_progress` + `halted` → read `halt_context`, skip completed steps, resume at `next_step`
    - `crashed` → reset to pending, increment attempts. If `attempts > max_impl_attempts` → flag for human.
    - `pending` / `queued` → queue for next available slot
    - `reviewing` → resume review cycle at saved state
    - `approved` → proceed to merge phase
+   - `halted` → read `halt_context.next_step`, resume from there
 4. Resume at `progress.current_phase` + `progress.current_state`
 
 ## Parallelism Control
@@ -233,6 +303,7 @@ On `--resume`:
 - **Each worktree knows which E2E tests are relevant** to its feature
 - **Two human gates**: after architecture (S1.5), after layer finalization (S7.1)
 - **Abort at any gate preserves state** for later resume
+- **Soft pause** lets current work finish, hard halt saves granular per-task state notes for precise resume
 - **State file is the single source of truth** — survives crashes, session loss, restarts
 
 ## File Structure
