@@ -267,3 +267,48 @@ describe("renderDiagram (single item each side)", () => {
     expect(botIdx - topIdx).toBe(2);
   });
 });
+
+// ── Golden / snapshot tests ───────────────────────────────────────────────────
+
+describe("renderDiagram output snapshots", () => {
+  test("simple variant — Auth service (3×3)", () => {
+    const result = renderDiagram({
+      app: "Auth",
+      inbound: ["REST :8080", "gRPC :9090", "Admin UI"],
+      outbound: ["Postgres :5432", "Redis :6379", "Email SMTP"],
+    });
+    expect(result).toBe(
+`External
+                            ┌──────────────────┐
+REST :8080      ──────────► │                  │ ◄──────────  Postgres :5432
+gRPC :9090      ──────────► │   Auth           │ ◄──────────  Redis :6379
+Admin UI        ──────────► │                  │ ◄──────────  Email SMTP
+                            └──────────────────┘
+                                                              Internal`
+    );
+  });
+
+  test("complex variant — Order Svc (3×3 + 3 internal)", () => {
+    const result = renderDiagram({
+      app: "Order Svc",
+      inbound: ["REST :8080", "gRPC :9090", "Kafka orders"],
+      outbound: ["Payment API", "Shipping API", "Notify API"],
+      internal: ["Postgres", "Redis cache", "Dead letter Q"],
+    });
+    expect(result).toBe(
+`External                                                      External
+                            ┌──────────────────┐
+REST :8080      ──────────► │                  │ ◄──────────  Payment API
+gRPC :9090      ──────────► │   Order Svc      │ ◄──────────  Shipping API
+Kafka orders    ──────────► │                  │ ◄──────────  Notify API
+                            └────────┬─────────┘
+                                     │
+                                     ▼
+                               Postgres
+                               Redis cache
+                               Dead letter Q
+
+                               Internal`
+    );
+  });
+});
