@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { probes } from "./lib.js";
+import { renderDiagram } from "./diagram.js";
 import type { CapturedTcpData, CapturedWsMessage, ProbesConfig } from "./interfaces/types.js";
 
 export async function startMcpServer(config: ProbesConfig): Promise<void> {
@@ -477,6 +478,33 @@ export async function startMcpServer(config: ProbesConfig): Promise<void> {
             text: `WS client buffer cleared for ${target}`,
           },
         ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "render_diagram",
+    {
+      description:
+        "Render an ASCII architecture diagram showing an app surrounded by its probe interfaces. Call this before writing E2E test files and embed the result as a block comment at the top of each test file.",
+      inputSchema: {
+        app: z.string().describe("App name shown in the center box"),
+        inbound: z
+          .array(z.string())
+          .describe("Inbound external interfaces (left side, arrows point into app)"),
+        outbound: z
+          .array(z.string())
+          .describe("Outbound external interfaces (right side, arrows point into app)"),
+        internal: z
+          .array(z.string())
+          .optional()
+          .describe("Internal-facing interfaces below the box (DB, queue, filesystem, etc.)"),
+      },
+    },
+    ({ app, inbound, outbound, internal }) => {
+      const diagram = renderDiagram({ app, inbound, outbound, internal });
+      return {
+        content: [{ type: "text" as const, text: diagram }],
       };
     }
   );
