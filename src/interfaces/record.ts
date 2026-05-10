@@ -71,13 +71,11 @@ export function createRecordInterface(config: RecordConfig): RecordActions {
 
         if (sorted.length > 0) {
           md += `### Sequence\n\n`;
-          md += `| # | Time | Step | Detail |\n`;
-          md += `|---|------|------|--------|\n`;
+          md += `| # | Time | Direction | Step | Detail |\n`;
+          md += `|---|------|-----------|------|--------|\n`;
           for (let i = 0; i < sorted.length; i++) {
             const e = sorted[i];
-            const step = eventStep(e);
-            const detail = eventDetail(e);
-            md += `| ${i + 1} | ${shortTime(e.time)} | ${step} | \`${detail}\` |\n`;
+            md += `| ${i + 1} | ${shortTime(e.time)} | ${eventDirection(e)} | ${eventStep(e)} | \`${eventDetail(e)}\` |\n`;
           }
           md += `\n`;
         }
@@ -115,6 +113,18 @@ function eventStep(e: RecordEvent): string {
       return e.source;
     case "response":
       return `${e.interface} response`;
+  }
+}
+
+function eventDirection(e: RecordEvent): string {
+  switch (e.kind) {
+    case "send":
+      if (e.interface === "http" && e.action === "put") return "Setup";
+      return "Send";
+    case "recv":
+      return "Recv";
+    case "response":
+      return "Response";
   }
 }
 
