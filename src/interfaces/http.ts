@@ -20,7 +20,7 @@ export interface HttpActions {
   close: () => void;
 }
 
-export function createHttpInterface(config: HttpConfig, _record?: RecordBuffer): HttpActions {
+export function createHttpInterface(config: HttpConfig, record?: RecordBuffer): HttpActions {
   const buffer = new RequestBuffer();
   let stagedResponse: {
     status: number;
@@ -121,10 +121,31 @@ export function createHttpInterface(config: HttpConfig, _record?: RecordBuffer):
         headers: headers ?? {},
         body: body ?? null,
       };
+      record?.push({
+        kind: "send",
+        time: new Date().toISOString(),
+        interface: "http",
+        action: "put",
+        data: typeof body === "string" ? body : JSON.stringify(body ?? null),
+      });
     },
 
     async read() {
-      return buffer.drain();
+      const captured = buffer.drain();
+      if (captured.length > 0) {
+        record?.push({
+          kind: "recv",
+          time: new Date().toISOString(),
+          source: "http:request",
+          data: captured.map((c) => ({
+            method: c.method,
+            path: c.path,
+            headers: c.headers,
+            body: c.body,
+          })),
+        });
+      }
+      return captured;
     },
 
     async watch(params) {
