@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { probes } from "./lib.js";
-import type { CapturedTcpData, CapturedWsMessage, ProbesConfig } from "./interfaces/types.js";
+import type { CapturedTcpData, CapturedUnixData, CapturedWsMessage, ProbesConfig } from "./interfaces/types.js";
 
 export async function startMcpServer(config: ProbesConfig): Promise<void> {
   const instance = await probes(config);
@@ -476,6 +476,72 @@ export async function startMcpServer(config: ProbesConfig): Promise<void> {
             type: "text" as const,
             text: `WS client buffer cleared for ${target}`,
           },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "unix_send",
+    {
+      description:
+        "Connect to a Unix socket, send data, and receive the response. Path can be specified directly or uses the configured client path.",
+      inputSchema: {
+        data: z.string().describe("Data to send (string or base64 bytes)"),
+        path: z.string().optional().describe("Unix socket path (uses configured client path if omitted)"),
+        timeout_ms: z.number().optional().describe("Timeout in milliseconds (default 30000)"),
+      },
+    },
+    async ({ data, path, timeout_ms }) => {
+      const result = await instance.unix.send({ data, path, timeout_ms });
+      return {
+        content: [{ type: "text" as const, text: result }],
+      };
+    }
+  );
+
+  server.registerTool(
+    "unix_send_json",
+    {
+      description:
+        "Connect to a Unix socket, send a JSON object, and parse the JSON response.",
+      inputSchema: {
+        data: z.string().describe("JSON string to send"),
+        path: z.string().optional().describe("Unix socket path (uses configured client path if omitted)"),
+        timeout_ms: z.number().optional().describe("Timeout in milliseconds (default 30000)"),
+      },
+    },
+    async ({ data: dataStr, path, timeout_ms }) => {
+      const data = JSON.parse(dataStr);
+      const result = await instance.unix.send_json({ data, path, timeout_ms });
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  server.registerTool(
+    "unix_watch",
+    {
+      description:
+        "Wait for incoming data on a Unix socket server target. Blocks until data arrives or timeout.",
+      inputSchema: {
+        target: z.string().describe("Unix server target name from config"),
+        timeout_ms: z.number().optional().describe("Timeout in milliseconds (default 30000)"),
+      },
+    },
+    async ({ target, timeout_ms }) => {
+      const iter = instance.unix.watch({ target, timeout_ms });
+      const result = await iter[Symbol.asyncIterator]().next();
+      if (result.done) {
+        return {
+          content: [{ type: "text" as const, text: "Watch ended" }],
+        };
+      }
+      const captured: CapturedUnixData = result.value;
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(captured, null, 2) },
         ],
       };
     }

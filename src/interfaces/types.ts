@@ -53,6 +53,24 @@ export interface WsConfig {
   server?: WsServerConfig;
 }
 
+export interface UnixClientConfig {
+  path: string;
+  timeout_ms?: number;
+}
+
+export interface UnixServerTargetConfig {
+  name: string;
+  path: string;
+  idle_timeout_ms?: number;
+}
+
+export type UnixServerConfig = UnixServerTargetConfig[];
+
+export interface UnixConfig {
+  client?: UnixClientConfig;
+  server?: UnixServerConfig;
+}
+
 export interface CapturedWsMessage {
   data: string;
   data_base64?: string;
@@ -67,12 +85,19 @@ export interface CapturedTcpData {
   remote: string;
 }
 
+export interface CapturedUnixData {
+  data: string;
+  timestamp: number;
+  peer_path?: string;
+}
+
 export interface ProbesConfig {
   http?: HttpConfig;
   sql?: SqlConfig;
   fs?: FsConfig;
   tcp?: TcpConfig;
   ws?: WsConfig;
+  unix?: UnixConfig;
 }
 
 export interface CapturedRequest {
@@ -137,6 +162,11 @@ export interface ProbesInstance {
       watch: (params: { target: string; timeout_ms?: number }) => AsyncIterable<CapturedWsMessage>;
       reset: (params: { target: string }) => Promise<void>;
     };
+  };
+  unix: {
+    send: (params: { data: string; path?: string; timeout_ms?: number }) => Promise<string>;
+    send_json: (params: { data: unknown; path?: string; timeout_ms?: number }) => Promise<unknown>;
+    watch: (params: { target: string; timeout_ms?: number }) => AsyncIterable<CapturedUnixData>;
   };
   configure: (partial: Partial<ProbesConfig>) => Promise<ProbesConfig>;
   close: () => Promise<void>;

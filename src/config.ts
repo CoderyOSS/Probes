@@ -83,6 +83,30 @@ const WsSchema = z.object({
   server: WsServerSchema.optional(),
 });
 
+const UnixClientSchema = z.object({
+  path: z.string().min(1),
+  timeout_ms: z.number().int().positive().optional(),
+});
+
+const UnixServerTargetSchema = z.object({
+  name: z.string().min(1),
+  path: z.string().min(1),
+  idle_timeout_ms: z.number().int().positive().optional(),
+});
+
+const UnixServerSchema = z.array(UnixServerTargetSchema).min(1).refine(
+  (targets) => {
+    const names = targets.map((t) => t.name);
+    return new Set(names).size === names.length;
+  },
+  { message: "Unix server target names must be unique" }
+);
+
+const UnixSchema = z.object({
+  client: UnixClientSchema.optional(),
+  server: UnixServerSchema.optional(),
+});
+
 const ProbesConfigSchema = z
   .object({
     http: HttpSchema.optional(),
@@ -90,6 +114,7 @@ const ProbesConfigSchema = z
     fs: FsSchema.optional(),
     tcp: TcpSchema.optional(),
     ws: WsSchema.optional(),
+    unix: UnixSchema.optional(),
   })
   .strict();
 

@@ -5,6 +5,7 @@ import { createFsInterface, type FsActions } from "./interfaces/fs";
 import { createTcpInterface, type TcpActions } from "./interfaces/tcp";
 import { createWsServerInterface, type WsServerActions } from "./interfaces/ws_server";
 import { createWsClientInterface, type WsClientActions } from "./interfaces/ws_client";
+import { createUnixInterface, type UnixActions } from "./interfaces/unix";
 import type { ProbesConfig, ProbesInstance } from "./interfaces/types";
 
 class ProbesInstanceImpl implements ProbesInstance {
@@ -15,6 +16,7 @@ class ProbesInstanceImpl implements ProbesInstance {
   private tcpImpl?: TcpActions;
   private wsServerImpl?: WsServerActions;
   private wsClientImpl?: WsClientActions;
+  private unixImpl?: UnixActions;
 
   constructor(config: ProbesConfig) {
     this.config = config;
@@ -39,9 +41,12 @@ class ProbesInstanceImpl implements ProbesInstance {
     if (this.config.ws?.client) {
       this.wsClientImpl = await createWsClientInterface(this.config.ws.client);
     }
+    if (this.config.unix) {
+      this.unixImpl = createUnixInterface(this.config.unix);
+    }
 
-    if (!this.sqlImpl && !this.httpImpl && !this.fsImpl && !this.tcpImpl && !this.wsServerImpl && !this.wsClientImpl) {
-      throw new Error("At least one interface must be configured (http, sql, fs, tcp, or ws)");
+    if (!this.sqlImpl && !this.httpImpl && !this.fsImpl && !this.tcpImpl && !this.wsServerImpl && !this.wsClientImpl && !this.unixImpl) {
+      throw new Error("At least one interface must be configured (http, sql, fs, tcp, ws, or unix)");
     }
   }
 
@@ -99,6 +104,15 @@ class ProbesInstanceImpl implements ProbesInstance {
     };
   }
 
+  get unix(): ProbesInstance["unix"] {
+    if (!this.unixImpl) throw new Error("Unix interface not configured");
+    return {
+      send: (p) => this.unixImpl!.send(p),
+      send_json: (p) => this.unixImpl!.send_json(p),
+      watch: (p) => this.unixImpl!.watch(p),
+    };
+  }
+
   async configure(partial: Partial<ProbesConfig>): Promise<ProbesConfig> {
     const merged: ProbesConfig = {
       ...this.config,
@@ -107,6 +121,7 @@ class ProbesInstanceImpl implements ProbesInstance {
       sql: this.config.sql || partial.sql ? { ...this.config.sql, ...partial.sql } as ProbesConfig["sql"] : undefined,
       fs: this.config.fs || partial.fs ? { ...this.config.fs, ...partial.fs } as ProbesConfig["fs"] : undefined,
       ws: partial.ws ?? this.config.ws,
+      unix: this.config.unix || partial.unix ? { ...this.config.unix, ...partial.unix } as ProbesConfig["unix"] : undefined,
     };
 
     const validated = validateConfig(merged);
@@ -135,6 +150,10 @@ class ProbesInstanceImpl implements ProbesInstance {
       this.wsClientImpl?.close();
       this.wsClientImpl = await createWsClientInterface(validated.ws!.client!);
     }
+    if (partial.unix) {
+      this.unixImpl?.close();
+      this.unixImpl = createUnixInterface(validated.unix!);
+    }
 
     this.config = validated;
     return { ...validated };
@@ -147,6 +166,7 @@ class ProbesInstanceImpl implements ProbesInstance {
     this.tcpImpl?.close();
     this.wsServerImpl?.close();
     this.wsClientImpl?.close();
+    this.unixImpl?.close();
   }
 }
 
