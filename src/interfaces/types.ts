@@ -71,6 +71,41 @@ export interface UnixConfig {
   server?: UnixServerConfig;
 }
 
+export interface RecordCall {
+  time: string;
+  interface: string;
+  action: string;
+  path?: string;
+  data?: string;
+}
+
+export interface RecordResponse {
+  time: string;
+  data: unknown;
+}
+
+export interface RecordAssertion {
+  expect: string;
+  expected: string;
+  actual: string;
+  pass: boolean;
+}
+
+export interface ProofEntry {
+  test_name: string;
+  started_at: string;
+  duration_ms: number;
+  result: "pass" | "fail";
+  error?: string;
+  calls: RecordCall[];
+  responses: RecordResponse[];
+  assertions: RecordAssertion[];
+}
+
+export interface RecordConfig {
+  output_path: string;
+}
+
 export interface CapturedWsMessage {
   data: string;
   data_base64?: string;
@@ -98,6 +133,7 @@ export interface ProbesConfig {
   tcp?: TcpConfig;
   ws?: WsConfig;
   unix?: UnixConfig;
+  record?: RecordConfig;
 }
 
 export interface CapturedRequest {
@@ -167,6 +203,14 @@ export interface ProbesInstance {
     send: (params: { data: string; path?: string; timeout_ms?: number }) => Promise<string>;
     send_json: (params: { data: unknown; path?: string; timeout_ms?: number }) => Promise<unknown>;
     watch: (params: { target: string; timeout_ms?: number }) => AsyncIterable<CapturedUnixData>;
+  };
+  record: {
+    begin: (params: { test_name: string }) => void;
+    call: (params: { interface: string; action: string; path?: string; data?: string }) => void;
+    response: (params: { data: unknown }) => void;
+    assert: (params: { expect: string; expected: string; actual: string; pass: boolean }) => void;
+    end: (params: { result: "pass" | "fail"; error?: string }) => void;
+    write: () => Promise<void>;
   };
   configure: (partial: Partial<ProbesConfig>) => Promise<ProbesConfig>;
   close: () => Promise<void>;

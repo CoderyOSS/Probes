@@ -107,6 +107,10 @@ const UnixSchema = z.object({
   server: UnixServerSchema.optional(),
 });
 
+const RecordSchema = z.object({
+  output_path: z.string().min(1),
+});
+
 const ProbesConfigSchema = z
   .object({
     http: HttpSchema.optional(),
@@ -115,6 +119,7 @@ const ProbesConfigSchema = z
     tcp: TcpSchema.optional(),
     ws: WsSchema.optional(),
     unix: UnixSchema.optional(),
+    record: RecordSchema.optional(),
   })
   .strict();
 
