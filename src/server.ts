@@ -564,61 +564,6 @@ export async function startMcpServer(config: ProbesConfig): Promise<void> {
   );
 
   server.registerTool(
-    "record_call",
-    {
-      description: "Record a probe interface call (send, put, watch, etc.).",
-      inputSchema: {
-        interface: z.string().describe("Interface name (unix, http, sql, etc.)"),
-        action: z.string().describe("Action performed (send, put, read, watch, etc.)"),
-        path: z.string().optional().describe("Target path or socket path"),
-        data: z.string().optional().describe("Data sent (truncated to 200 chars in output)"),
-      },
-    },
-    async ({ interface: iface, action, path, data }) => {
-      instance.record.call({ interface: iface, action, path, data });
-      return {
-        content: [{ type: "text" as const, text: `Call recorded: ${iface}.${action}` }],
-      };
-    }
-  );
-
-  server.registerTool(
-    "record_response",
-    {
-      description: "Record a response received from a probed system.",
-      inputSchema: {
-        data: z.string().describe("JSON string of the response data"),
-      },
-    },
-    async ({ data: dataStr }) => {
-      const data = JSON.parse(dataStr);
-      instance.record.response({ data });
-      return {
-        content: [{ type: "text" as const, text: `Response recorded` }],
-      };
-    }
-  );
-
-  server.registerTool(
-    "record_assert",
-    {
-      description: "Record an assertion with expected vs actual values.",
-      inputSchema: {
-        expect: z.string().describe("Property being asserted (e.g., 'action', 'status')"),
-        expected: z.string().describe("Expected value"),
-        actual: z.string().describe("Actual value received"),
-        pass: z.boolean().describe("Whether the assertion passed"),
-      },
-    },
-    async ({ expect: expectKey, expected, actual, pass }) => {
-      instance.record.assert({ expect: expectKey, expected, actual, pass });
-      return {
-        content: [{ type: "text" as const, text: `Assertion recorded: ${expectKey}${pass ? " ✓" : " ✗"}` }],
-      };
-    }
-  );
-
-  server.registerTool(
     "record_end",
     {
       description: "End the current proof record entry.",
@@ -638,7 +583,7 @@ export async function startMcpServer(config: ProbesConfig): Promise<void> {
   server.registerTool(
     "record_write",
     {
-      description: "Generate the proof records markdown report and write to configured output path.",
+      description: "Generate proof records markdown report and write to configured output path.",
       inputSchema: {},
     },
     async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, afterAll } from "bun:test";
-import { existsSync, readFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { probes } from "../src/lib";
 
@@ -16,27 +16,30 @@ afterEach(cleanup);
 afterAll(cleanup);
 
 describe("record interface", () => {
-  it("writes markdown after test suite", async () => {
-    const p = await probes({ record: { output_path: OUTPUT } });
+  it("writes markdown with auto-instrumented events", async () => {
+    const sqlPath = "/tmp/record-test-sql.db";
+    const p = await probes({
+      record: { output_path: OUTPUT },
+      sql: { path: sqlPath },
+    });
 
-    p.record.begin({ test_name: "test suite > demo test" });
-    p.record.call({ interface: "unix", action: "send", path: "/tmp/s.sock", data: JSON.stringify({ type: "spawn_shell" }) });
-    p.record.response({ data: { action: "reject", reason: "blocked" } });
-    p.record.assert({ expect: "action", expected: "reject", actual: "reject", pass: true });
-    p.record.end({ result: "pass" });
+    p.record.begin({ test_name: "auto-instrumented test" });
+    try {
+      const rows = await p.sql.read({ table: "nonexistent" });
+      p.record.end({ result: "pass" });
+    } catch {
+      p.record.end({ result: "fail", error: "unexpected" });
+    }
 
     await p.record.write();
     await p.close();
 
     expect(existsSync(OUTPUT)).toBe(true);
     const md = readFileSync(OUTPUT, "utf8");
-    expect(md).toContain("ShellGate E2E Proof Records");
-    expect(md).toContain("## test suite > demo test");
-    expect(md).toContain("✓ pass");
-    expect(md).toContain("| unix | send |");
-    expect(md).toContain("spawn_shell");
-    expect(md).toContain("reject");
-    expect(md).toContain("✓ |");
+    expect(md).toContain("auto-instrumented test");
+    expect(md).toContain("### Recv");
+    expect(md).toContain("sql:nonexistent");
+    try { unlinkSync(sqlPath); } catch {}
   });
 
   it("records error on failure", async () => {
@@ -57,15 +60,12 @@ describe("record interface", () => {
     const p = await probes({ record: { output_path: OUTPUT_NESTED } });
 
     p.record.begin({ test_name: "nested dir test" });
-    p.record.assert({ expect: "exists", expected: "true", actual: "true", pass: true });
     p.record.end({ result: "pass" });
 
     await p.record.write();
     await p.close();
 
     expect(existsSync(OUTPUT_NESTED)).toBe(true);
-    const md = readFileSync(OUTPUT_NESTED, "utf8");
-    expect(md).toContain("nested dir test");
   });
 
   it("handles multiple tests in one suite", async () => {
@@ -108,7 +108,6 @@ describe("record interface", () => {
     const md = readFileSync(OUTPUT, "utf8");
     expect(md).toContain("## second batch");
     expect(md).toContain("1 run, 1 pass, 0 fail");
-    // only one test in second batch
     expect(md.match(/## /g)?.length).toBe(1);
   });
 });

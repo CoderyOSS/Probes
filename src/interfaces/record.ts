@@ -1,15 +1,17 @@
-import type { RecordConfig, RecordCall, RecordResponse, RecordAssertion, ProofEntry } from "./types";
+import type { RecordConfig, RecordEvent, ProofEntry } from "./types";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
+export interface RecordBuffer {
+  push(event: RecordEvent): void;
+}
+
 export interface RecordActions {
   begin: (params: { test_name: string }) => void;
-  call: (params: { interface: string; action: string; path?: string; data?: string }) => void;
-  response: (params: { data: unknown }) => void;
-  assert: (params: { expect: string; expected: string; actual: string; pass: boolean }) => void;
   end: (params: { result: "pass" | "fail"; error?: string }) => void;
   write: () => Promise<void>;
   close: () => void;
+  buffer: RecordBuffer;
 }
 
 export function createRecordInterface(config: RecordConfig): RecordActions {
@@ -17,41 +19,23 @@ export function createRecordInterface(config: RecordConfig): RecordActions {
   let current: ProofEntry | null = null;
   let suiteStartTime = Date.now();
 
+  const buffer: RecordBuffer = {
+    push(event) {
+      if (!current) return;
+      current.events.push(event);
+    },
+  };
+
   return {
+    buffer,
     begin({ test_name }) {
       current = {
         test_name,
         started_at: new Date().toISOString(),
         duration_ms: 0,
         result: "pass",
-        calls: [],
-        responses: [],
-        assertions: [],
+        events: [],
       };
-    },
-
-    call({ interface: iface, action, path, data }) {
-      if (!current) return;
-      current.calls.push({
-        time: new Date().toISOString(),
-        interface: iface,
-        action,
-        path,
-        data,
-      });
-    },
-
-    response({ data }) {
-      if (!current) return;
-      current.responses.push({
-        time: new Date().toISOString(),
-        data,
-      });
-    },
-
-    assert({ expect, expected, actual, pass }) {
-      if (!current) return;
-      current.assertions.push({ expect, expected, actual, pass });
     },
 
     end({ result, error }) {
@@ -78,41 +62,53 @@ export function createRecordInterface(config: RecordConfig): RecordActions {
         const statusIcon = entry.result === "pass" ? "✓" : "✗";
         md += `## ${entry.test_name}\n\n`;
         md += `**Status:** ${statusIcon} ${entry.result}`;
-        md += ` | **Started:** ${entry.started_at}`;
-        md += ` | **Duration:** ${entry.duration_ms}ms\n`;
         if (entry.error) {
-          md += `\n**Error:** ${truncate(entry.error, 500)}\n`;
+          md += ` | **Error:** ${truncate(entry.error, 200)}`;
         }
-        md += `\n`;
+        md += ` | **Started:** ${entry.started_at}`;
+        md += ` | **Duration:** ${entry.duration_ms}ms\n\n`;
 
-        if (entry.calls.length > 0) {
-          md += `### Probes calls\n\n`;
+        const sends = entry.events.filter((e) => e.kind === "send");
+        const responses = entry.events.filter((e) => e.kind === "response");
+        const recvs = entry.events.filter((e) => e.kind === "recv");
+
+        if (sends.length > 0) {
+          md += `### Send\n\n`;
           md += `| # | Time | Interface | Action | Path | Data |\n`;
           md += `|---|------|-----------|--------|------|------|\n`;
-          for (let i = 0; i < entry.calls.length; i++) {
-            const c = entry.calls[i];
-            md += `| ${i + 1} | ${shortTime(c.time)} | ${c.interface} | ${c.action} | ${c.path ?? "-"} | \`${truncate(c.data ?? "", 200)}\` |\n`;
+          for (let i = 0; i < sends.length; i++) {
+            const s = sends[i];
+            if (s.kind !== "send") continue;
+            md += `| ${i + 1} | ${shortTime(s.time)} | ${s.interface} | ${s.action} | ${s.path ?? "-"} | \`${truncate(s.data ?? "", 200)}\` |\n`;
           }
           md += `\n`;
         }
 
-        if (entry.responses.length > 0) {
-          md += `### Responses\n\n`;
-          for (let i = 0; i < entry.responses.length; i++) {
-            const r = entry.responses[i];
-            const dataStr = truncate(typeof r.data === "string" ? r.data : JSON.stringify(r.data), 500);
-            md += `| ${i + 1} | ${shortTime(r.time)} | \`${dataStr}\` |\n`;
+        if (recvs.length > 0) {
+          md += `### Recv\n\n`;
+          md += `| # | Time | Source | Data |\n`;
+          md += `|---|------|--------|------|\n`;
+          for (let i = 0; i < recvs.length; i++) {
+            const r = recvs[i];
+            if (r.kind !== "recv") continue;
+            const dataStr = truncate(typeof r.data === "string" ? r.data : JSON.stringify(r.data), 300);
+            md += `| ${i + 1} | ${shortTime(r.time)} | ${r.source} | \`${dataStr}\` |\n`;
           }
           md += `\n`;
         }
 
-        if (entry.assertions.length > 0) {
-          md += `### Assertions\n\n`;
-          md += `| # | Expected | Actual | Pass |\n`;
-          md += `|---|----------|--------|------|\n`;
-          for (let i = 0; i < entry.assertions.length; i++) {
-            const a = entry.assertions[i];
-            md += `| ${i + 1} | ${truncate(a.expected, 100)} | ${truncate(a.actual, 100)} | ${a.pass ? "✓" : "✗"} |\n`;
+        if (responses.length > 0) {
+          md += `### Response\n\n`;
+          md += `| # | Time | Interface | Data |\n`;
+          md += `|---|------|-----------|------|\n`;
+          for (let i = 0; i < responses.length; i++) {
+            const r = responses[i];
+            if (r.kind !== "response") continue;
+            const dataStr = truncate(
+              r.parsed ? JSON.stringify(r.parsed) : (r.raw ?? ""),
+              300
+            );
+            md += `| ${i + 1} | ${shortTime(r.time)} | ${r.interface} | \`${dataStr}\` |\n`;
           }
           md += `\n`;
         }
@@ -136,8 +132,7 @@ export function createRecordInterface(config: RecordConfig): RecordActions {
 
 function shortTime(iso: string): string {
   try {
-    const d = new Date(iso);
-    return d.toISOString().split("T")[1]?.replace("Z", "") ?? iso;
+    return iso.split("T")[1]?.replace("Z", "") ?? iso;
   } catch {
     return iso;
   }

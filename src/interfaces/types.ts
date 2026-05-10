@@ -79,17 +79,10 @@ export interface RecordCall {
   data?: string;
 }
 
-export interface RecordResponse {
-  time: string;
-  data: unknown;
-}
-
-export interface RecordAssertion {
-  expect: string;
-  expected: string;
-  actual: string;
-  pass: boolean;
-}
+export type RecordEvent =
+  | { kind: "send"; time: string; interface: string; action: string; path?: string; data?: string }
+  | { kind: "response"; time: string; interface: string; raw?: string; parsed?: unknown }
+  | { kind: "recv"; time: string; source: string; data: unknown };
 
 export interface ProofEntry {
   test_name: string;
@@ -97,9 +90,7 @@ export interface ProofEntry {
   duration_ms: number;
   result: "pass" | "fail";
   error?: string;
-  calls: RecordCall[];
-  responses: RecordResponse[];
-  assertions: RecordAssertion[];
+  events: RecordEvent[];
 }
 
 export interface RecordConfig {
@@ -206,9 +197,6 @@ export interface ProbesInstance {
   };
   record: {
     begin: (params: { test_name: string }) => void;
-    call: (params: { interface: string; action: string; path?: string; data?: string }) => void;
-    response: (params: { data: unknown }) => void;
-    assert: (params: { expect: string; expected: string; actual: string; pass: boolean }) => void;
     end: (params: { result: "pass" | "fail"; error?: string }) => void;
     write: () => Promise<void>;
   };

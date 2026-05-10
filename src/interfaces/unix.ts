@@ -1,4 +1,5 @@
 import type { UnixClientConfig, UnixServerConfig, UnixServerTargetConfig, CapturedUnixData } from "./types";
+import type { RecordBuffer } from "./record";
 import type { Socket, TCPSocketListener } from "bun";
 
 interface TargetState {
@@ -21,7 +22,7 @@ export interface UnixActions {
 export function createUnixInterface(config: {
   client?: UnixClientConfig;
   server?: UnixServerConfig;
-}): UnixActions {
+}, record?: RecordBuffer): UnixActions {
   const targetMap = new Map<string, TargetState>();
 
   if (config.server) {
@@ -85,8 +86,23 @@ export function createUnixInterface(config: {
         throw new Error("Unix path not provided and no client path configured");
       }
 
+      record?.push({
+        kind: "send",
+        time: new Date().toISOString(),
+        interface: "unix",
+        action: "send",
+        path: targetPath,
+        data,
+      });
+
       return new Promise<string>((resolve, reject) => {
         const timer = setTimeout(() => {
+          record?.push({
+            kind: "response",
+            time: new Date().toISOString(),
+            interface: "unix",
+            raw: "timeout",
+          });
           reject(new Error(`Unix send timeout: no response within ${timeout_ms}ms`));
         }, timeout_ms);
 
@@ -104,16 +120,35 @@ export function createUnixInterface(config: {
               },
               close(_socket) {
                 clearTimeout(timer);
-                resolve(Buffer.concat(chunks).toString());
+                const raw = Buffer.concat(chunks).toString();
+                record?.push({
+                  kind: "response",
+                  time: new Date().toISOString(),
+                  interface: "unix",
+                  raw,
+                });
+                resolve(raw);
               },
               error(_socket, err) {
                 clearTimeout(timer);
+                record?.push({
+                  kind: "response",
+                  time: new Date().toISOString(),
+                  interface: "unix",
+                  raw: `error: ${err.message}`,
+                });
                 reject(new Error(`Unix socket error: ${err.message}`));
               },
             },
           });
         } catch (err: any) {
           clearTimeout(timer);
+          record?.push({
+            kind: "response",
+            time: new Date().toISOString(),
+            interface: "unix",
+            raw: `connect error: ${err.message}`,
+          });
           reject(new Error(`Unix connect failed: ${err.message}`));
         }
       });

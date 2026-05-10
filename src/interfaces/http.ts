@@ -1,4 +1,5 @@
 import type { HttpConfig, HttpResponse, CapturedRequest } from "./types";
+import type { RecordBuffer } from "./record";
 import { RequestBuffer } from "../utils/state";
 
 export interface HttpActions {
@@ -19,7 +20,7 @@ export interface HttpActions {
   close: () => void;
 }
 
-export function createHttpInterface(config: HttpConfig): HttpActions {
+export function createHttpInterface(config: HttpConfig, _record?: RecordBuffer): HttpActions {
   const buffer = new RequestBuffer();
   let stagedResponse: {
     status: number;

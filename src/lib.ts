@@ -6,7 +6,7 @@ import { createTcpInterface, type TcpActions } from "./interfaces/tcp";
 import { createWsServerInterface, type WsServerActions } from "./interfaces/ws_server";
 import { createWsClientInterface, type WsClientActions } from "./interfaces/ws_client";
 import { createUnixInterface, type UnixActions } from "./interfaces/unix";
-import { createRecordInterface, type RecordActions } from "./interfaces/record";
+import { createRecordInterface, type RecordActions, type RecordBuffer } from "./interfaces/record";
 import type { ProbesConfig, ProbesInstance } from "./interfaces/types";
 
 class ProbesInstanceImpl implements ProbesInstance {
@@ -25,29 +25,31 @@ class ProbesInstanceImpl implements ProbesInstance {
   }
 
   async init() {
-    if (this.config.sql) {
-      this.sqlImpl = createSqlInterface(this.config.sql);
-    }
-    if (this.config.http) {
-      this.httpImpl = createHttpInterface(this.config.http);
-    }
-    if (this.config.fs) {
-      this.fsImpl = createFsInterface(this.config.fs);
-    }
-    if (this.config.tcp) {
-      this.tcpImpl = createTcpInterface(this.config.tcp);
-    }
-    if (this.config.ws?.server) {
-      this.wsServerImpl = createWsServerInterface(this.config.ws.server);
-    }
-    if (this.config.ws?.client) {
-      this.wsClientImpl = await createWsClientInterface(this.config.ws.client);
-    }
-    if (this.config.unix) {
-      this.unixImpl = createUnixInterface(this.config.unix);
-    }
+    let recordBuf: RecordBuffer | undefined;
     if (this.config.record) {
       this.recordImpl = createRecordInterface(this.config.record);
+      recordBuf = this.recordImpl.buffer;
+    }
+    if (this.config.sql) {
+      this.sqlImpl = createSqlInterface(this.config.sql, recordBuf);
+    }
+    if (this.config.http) {
+      this.httpImpl = createHttpInterface(this.config.http, recordBuf);
+    }
+    if (this.config.fs) {
+      this.fsImpl = createFsInterface(this.config.fs, recordBuf);
+    }
+    if (this.config.tcp) {
+      this.tcpImpl = createTcpInterface(this.config.tcp, recordBuf);
+    }
+    if (this.config.ws?.server) {
+      this.wsServerImpl = createWsServerInterface(this.config.ws.server, recordBuf);
+    }
+    if (this.config.ws?.client) {
+      this.wsClientImpl = await createWsClientInterface(this.config.ws.client, recordBuf);
+    }
+    if (this.config.unix) {
+      this.unixImpl = createUnixInterface(this.config.unix, recordBuf);
     }
 
     if (!this.sqlImpl && !this.httpImpl && !this.fsImpl && !this.tcpImpl && !this.wsServerImpl && !this.wsClientImpl && !this.unixImpl && !this.recordImpl) {
@@ -122,9 +124,6 @@ class ProbesInstanceImpl implements ProbesInstance {
     if (!this.recordImpl) throw new Error("Record interface not configured");
     return {
       begin: (p) => this.recordImpl!.begin(p),
-      call: (p) => this.recordImpl!.call(p),
-      response: (p) => this.recordImpl!.response(p),
-      assert: (p) => this.recordImpl!.assert(p),
       end: (p) => this.recordImpl!.end(p),
       write: () => this.recordImpl!.write(),
     };
@@ -144,37 +143,40 @@ class ProbesInstanceImpl implements ProbesInstance {
 
     const validated = validateConfig(merged);
 
+    let recordBuf = this.recordImpl?.buffer;
+
     if (partial.sql) {
       this.sqlImpl?.close();
-      this.sqlImpl = createSqlInterface(validated.sql!);
+      this.sqlImpl = createSqlInterface(validated.sql!, recordBuf);
     }
     if (partial.http) {
       this.httpImpl?.close();
-      this.httpImpl = createHttpInterface(validated.http!);
+      this.httpImpl = createHttpInterface(validated.http!, recordBuf);
     }
     if (partial.fs) {
       this.fsImpl?.close();
-      this.fsImpl = createFsInterface(validated.fs!);
+      this.fsImpl = createFsInterface(validated.fs!, recordBuf);
     }
     if (partial.tcp) {
       this.tcpImpl?.close();
-      this.tcpImpl = createTcpInterface(validated.tcp!);
+      this.tcpImpl = createTcpInterface(validated.tcp!, recordBuf);
     }
     if (partial.ws?.server) {
       this.wsServerImpl?.close();
-      this.wsServerImpl = createWsServerInterface(validated.ws!.server!);
+      this.wsServerImpl = createWsServerInterface(validated.ws!.server!, recordBuf);
     }
     if (partial.ws?.client) {
       this.wsClientImpl?.close();
-      this.wsClientImpl = await createWsClientInterface(validated.ws!.client!);
+      this.wsClientImpl = await createWsClientInterface(validated.ws!.client!, recordBuf);
     }
     if (partial.unix) {
       this.unixImpl?.close();
-      this.unixImpl = createUnixInterface(validated.unix!);
+      this.unixImpl = createUnixInterface(validated.unix!, recordBuf);
     }
     if (partial.record) {
       this.recordImpl?.close();
       this.recordImpl = createRecordInterface(validated.record!);
+      recordBuf = this.recordImpl.buffer;
     }
 
     this.config = validated;

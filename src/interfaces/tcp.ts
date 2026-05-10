@@ -1,5 +1,6 @@
 import { createServer, type Socket } from "node:net";
 import type { TcpTargetConfig, CapturedTcpData } from "./types";
+import type { RecordBuffer } from "./record";
 import { resolveHandshake } from "./handshakes/index.js";
 
 export interface TcpActions {
@@ -20,7 +21,7 @@ interface TargetState {
   buffered: CapturedTcpData | null;
 }
 
-export function createTcpInterface(targets: TcpTargetConfig[]): TcpActions {
+export function createTcpInterface(targets: TcpTargetConfig[], _record?: RecordBuffer): TcpActions {
   const targetMap = new Map<string, TargetState>();
 
   for (const targetConfig of targets) {

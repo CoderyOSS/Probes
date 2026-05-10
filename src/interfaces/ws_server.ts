@@ -1,4 +1,5 @@
 import type { WsServerTargetConfig, CapturedWsMessage } from "./types";
+import type { RecordBuffer } from "./record";
 
 export interface WsServerActions {
   send: (params: { target: string; data: string; binary?: boolean }) => Promise<void>;
@@ -19,7 +20,7 @@ interface TargetState {
   buffered: CapturedWsMessage | null;
 }
 
-export function createWsServerInterface(targets: WsServerTargetConfig[]): WsServerActions {
+export function createWsServerInterface(targets: WsServerTargetConfig[], _record?: RecordBuffer): WsServerActions {
   const targetMap = new Map<string, TargetState>();
 
   for (const targetConfig of targets) {

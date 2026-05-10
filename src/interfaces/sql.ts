@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { SqlConfig } from "./types";
+import type { RecordBuffer } from "./record";
 
 export interface SqlActions {
   put: (params: {
@@ -27,7 +28,7 @@ function inferColumnType(value: unknown): string {
   return "TEXT";
 }
 
-export function createSqlInterface(config: SqlConfig): SqlActions {
+export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): SqlActions {
   const dbPath = resolve(config.path);
   mkdirSync(dirname(dbPath), { recursive: true });
 
@@ -85,7 +86,15 @@ export function createSqlInterface(config: SqlConfig): SqlActions {
       const tableCheck = db
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
         .get(table) as { name: string } | undefined;
-      if (!tableCheck) return [];
+      if (!tableCheck) {
+        record?.push({
+          kind: "recv",
+          time: new Date().toISOString(),
+          source: `sql:${table}`,
+          data: [],
+        });
+        return [];
+      }
 
       let sql = `SELECT * FROM "${table}"`;
       const params: unknown[] = [];
@@ -106,7 +115,14 @@ export function createSqlInterface(config: SqlConfig): SqlActions {
         sql += ` LIMIT ${limit}`;
       }
 
-      return db.prepare(sql).all(...params as [string]) as Record<string, unknown>[];
+      const rows = db.prepare(sql).all(...params as [string]) as Record<string, unknown>[];
+      record?.push({
+        kind: "recv",
+        time: new Date().toISOString(),
+        source: `sql:${table}`,
+        data: rows,
+      });
+      return rows;
     },
 
     async reset(params) {

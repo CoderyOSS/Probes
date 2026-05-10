@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import type { FsConfig } from "./types";
+import type { RecordBuffer } from "./record";
 
 export interface FsActions {
   put: (params: { path: string; content: string }) => Promise<void>;
@@ -26,7 +27,7 @@ function safePath(root: string, relativePath: string): string {
   return normalized;
 }
 
-export function createFsInterface(config: FsConfig): FsActions {
+export function createFsInterface(config: FsConfig, _record?: RecordBuffer): FsActions {
   const root = resolve(config.root);
 
   if (config.reset_on_start && existsSync(root)) {
