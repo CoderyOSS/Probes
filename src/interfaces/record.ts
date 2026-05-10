@@ -139,10 +139,14 @@ function eventDetail(e: RecordEvent): string {
       return truncate(dataStr, 300);
     }
     case "response": {
-      const dataStr = e.parsed ? JSON.stringify(e.parsed) : (e.raw ?? "");
-      return truncate(dataStr, 300);
+      const raw = e.parsed ? JSON.stringify(e.parsed) : sanitize(e.raw ?? "");
+      return truncate(raw, 300);
     }
   }
+}
+
+function sanitize(s: string): string {
+  return s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
 }
 
 function truncate(s: string, max: number): string {
