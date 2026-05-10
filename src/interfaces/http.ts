@@ -49,6 +49,18 @@ export function createHttpInterface(config: HttpConfig, record?: RecordBuffer): 
 
         buffer.push(captured);
 
+        record?.push({
+          kind: "recv",
+          time: new Date().toISOString(),
+          source: "http:request",
+          data: [{
+            method: captured.method,
+            path: captured.path,
+            headers: captured.headers,
+            body: captured.body,
+          }],
+        });
+
         if (pendingWatch) {
           pendingWatch(captured);
           pendingWatch = null;
@@ -131,21 +143,7 @@ export function createHttpInterface(config: HttpConfig, record?: RecordBuffer): 
     },
 
     async read() {
-      const captured = buffer.drain();
-      if (captured.length > 0) {
-        record?.push({
-          kind: "recv",
-          time: new Date().toISOString(),
-          source: "http:request",
-          data: captured.map((c) => ({
-            method: c.method,
-            path: c.path,
-            headers: c.headers,
-            body: c.body,
-          })),
-        });
-      }
-      return captured;
+      return buffer.drain();
     },
 
     async watch(params) {

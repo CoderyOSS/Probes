@@ -65,50 +65,19 @@ export function createRecordInterface(config: RecordConfig): RecordActions {
         if (entry.error) {
           md += ` | **Error:** ${truncate(entry.error, 200)}`;
         }
-        md += ` | **Started:** ${entry.started_at}`;
         md += ` | **Duration:** ${entry.duration_ms}ms\n\n`;
 
-        const sends = entry.events.filter((e) => e.kind === "send");
-        const responses = entry.events.filter((e) => e.kind === "response");
-        const recvs = entry.events.filter((e) => e.kind === "recv");
+        const sorted = [...entry.events].sort((a, b) => a.time.localeCompare(b.time));
 
-        if (sends.length > 0) {
-          md += `### Send\n\n`;
-          md += `| # | Time | Interface | Action | Path | Data |\n`;
-          md += `|---|------|-----------|--------|------|------|\n`;
-          for (let i = 0; i < sends.length; i++) {
-            const s = sends[i];
-            if (s.kind !== "send") continue;
-            md += `| ${i + 1} | ${shortTime(s.time)} | ${s.interface} | ${s.action} | ${s.path ?? "-"} | \`${truncate(s.data ?? "", 200)}\` |\n`;
-          }
-          md += `\n`;
-        }
-
-        if (recvs.length > 0) {
-          md += `### Recv\n\n`;
-          md += `| # | Time | Source | Data |\n`;
-          md += `|---|------|--------|------|\n`;
-          for (let i = 0; i < recvs.length; i++) {
-            const r = recvs[i];
-            if (r.kind !== "recv") continue;
-            const dataStr = truncate(typeof r.data === "string" ? r.data : JSON.stringify(r.data), 300);
-            md += `| ${i + 1} | ${shortTime(r.time)} | ${r.source} | \`${dataStr}\` |\n`;
-          }
-          md += `\n`;
-        }
-
-        if (responses.length > 0) {
-          md += `### Response\n\n`;
-          md += `| # | Time | Interface | Data |\n`;
-          md += `|---|------|-----------|------|\n`;
-          for (let i = 0; i < responses.length; i++) {
-            const r = responses[i];
-            if (r.kind !== "response") continue;
-            const dataStr = truncate(
-              r.parsed ? JSON.stringify(r.parsed) : (r.raw ?? ""),
-              300
-            );
-            md += `| ${i + 1} | ${shortTime(r.time)} | ${r.interface} | \`${dataStr}\` |\n`;
+        if (sorted.length > 0) {
+          md += `### Sequence\n\n`;
+          md += `| # | Time | Step | Detail |\n`;
+          md += `|---|------|------|--------|\n`;
+          for (let i = 0; i < sorted.length; i++) {
+            const e = sorted[i];
+            const step = eventStep(e);
+            const detail = eventDetail(e);
+            md += `| ${i + 1} | ${shortTime(e.time)} | ${step} | \`${detail}\` |\n`;
           }
           md += `\n`;
         }
@@ -135,6 +104,34 @@ function shortTime(iso: string): string {
     return iso.split("T")[1]?.replace("Z", "") ?? iso;
   } catch {
     return iso;
+  }
+}
+
+function eventStep(e: RecordEvent): string {
+  switch (e.kind) {
+    case "send":
+      return `${e.interface}.${e.action}`;
+    case "recv":
+      return e.source;
+    case "response":
+      return `${e.interface} response`;
+  }
+}
+
+function eventDetail(e: RecordEvent): string {
+  switch (e.kind) {
+    case "send": {
+      const dataStr = e.data ?? "";
+      return truncate(dataStr, 200);
+    }
+    case "recv": {
+      const dataStr = typeof e.data === "string" ? e.data : JSON.stringify(e.data);
+      return truncate(dataStr, 300);
+    }
+    case "response": {
+      const dataStr = e.parsed ? JSON.stringify(e.parsed) : (e.raw ?? "");
+      return truncate(dataStr, 300);
+    }
   }
 }
 

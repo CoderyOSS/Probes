@@ -37,7 +37,7 @@ describe("record interface", () => {
     expect(existsSync(OUTPUT)).toBe(true);
     const md = readFileSync(OUTPUT, "utf8");
     expect(md).toContain("auto-instrumented test");
-    expect(md).toContain("### Recv");
+    expect(md).toContain("### Sequence");
     expect(md).toContain("sql:nonexistent");
     try { unlinkSync(sqlPath); } catch {}
   });
