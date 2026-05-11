@@ -7,6 +7,7 @@ import { createWsServerInterface, type WsServerActions } from "./interfaces/ws_s
 import { createWsClientInterface, type WsClientActions } from "./interfaces/ws_client";
 import { createUnixInterface, type UnixActions } from "./interfaces/unix";
 import { createRecordInterface, type RecordActions, type RecordBuffer } from "./interfaces/record";
+import { spawn } from "bun";
 import type { ProbesConfig, ProbesInstance } from "./interfaces/types";
 import { statSync } from "node:fs";
 import { dirname } from "node:path";
@@ -232,7 +233,7 @@ async function autoInit(): Promise<void> {
 
   if (config.launcher) {
     const shellCmd = config.launcher.command;
-    _launcherProc = Bun.$(shellCmd as any).cwd(configDir).nothrow().quiet().spawn();
+    _launcherProc = spawn({ cmd: ["sh", "-c", shellCmd], cwd: configDir, stdout: "ignore", stderr: "ignore" });
   }
 
   if (config.launcher?.ready_socket) {
