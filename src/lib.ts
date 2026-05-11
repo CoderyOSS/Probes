@@ -8,13 +8,12 @@ import { createWsClientInterface, type WsClientActions } from "./interfaces/ws_c
 import { createUnixInterface, type UnixActions } from "./interfaces/unix";
 import { createRecordInterface, type RecordActions, type RecordBuffer } from "./interfaces/record";
 import type { ProbesConfig, ProbesInstance } from "./interfaces/types";
-import { spawn, type Subprocess } from "bun";
-import { mkdirSync, writeFileSync, existsSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { dirname } from "node:path";
 
 let _instance: ProbesInstanceImpl | null = null;
 let _initPromise: Promise<void> | null = null;
-let _launcherProc: Subprocess | null = null;
+let _launcherProc: { kill: () => void } | null = null;
 
 class ProbesInstanceImpl implements ProbesInstance {
   private config: ProbesConfig;
@@ -209,10 +208,8 @@ async function pollSocket(path: string, intervalMs: number, timeoutMs: number): 
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      if (existsSync(path)) {
-        const st = statSync(path);
-        if (st.isSocket()) return;
-      }
+      const st = statSync(path);
+      if (st.isSocket()) return;
     } catch {}
     await new Promise((r) => setTimeout(r, intervalMs));
   }
@@ -234,13 +231,8 @@ async function autoInit(): Promise<void> {
   const configDir = dirname(configPath);
 
   if (config.launcher) {
-    const cmdParts = config.launcher.command.split(/\s+/);
-    _launcherProc = spawn({
-      cmd: cmdParts,
-      cwd: configDir,
-      stdout: "inherit",
-      stderr: "inherit",
-    });
+    const shellCmd = config.launcher.command;
+    _launcherProc = Bun.$(shellCmd as any).cwd(configDir).nothrow().quiet().spawn();
   }
 
   if (config.launcher?.ready_socket) {
@@ -262,7 +254,7 @@ async function autoInit(): Promise<void> {
       _instance.proof.save();
     }
     if (_launcherProc) {
-      _launcherProc.kill();
+      try { _launcherProc.kill(); } catch {}
     }
   });
 }
