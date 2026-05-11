@@ -109,6 +109,7 @@ const UnixSchema = z.object({
 
 const RecordSchema = z.object({
   output_path: z.string().min(1),
+  title: z.string().optional(),
 });
 
 const ProbesConfigSchema = z
