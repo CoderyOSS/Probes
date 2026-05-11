@@ -207,7 +207,7 @@ export interface ProbesInstance {
     send: (params: { data: string; path?: string; timeout_ms?: number }) => Promise<string>;
     send_json: (params: { data: unknown; path?: string; timeout_ms?: number }) => Promise<unknown>;
     watch: (params: { target: string; timeout_ms?: number }) => AsyncIterable<CapturedUnixData>;
-    use: <In, Out>(adapter: Partial<UnixActions<In, Out>>) => UnixActions<In, Out>;
+    use: <In, Out>(factory: (raw: UnixActions<string, string>) => Partial<UnixActions<In, Out>>) => UnixActions<In, Out>;
   };
   proof: {
     save: () => void;

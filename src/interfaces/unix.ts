@@ -22,7 +22,7 @@ export interface UnixActions<In = string, Out = string> {
 export function createUnixInterface(config: {
   client?: UnixClientConfig;
   server?: UnixServerConfig;
-}, record?: RecordBuffer): UnixActions & { use: <In, Out>(adapter: Partial<UnixActions<In, Out>>) => UnixActions<In, Out> } {
+}, record?: RecordBuffer): UnixActions & { use: <In, Out>(factory: (raw: UnixActions) => Partial<UnixActions<In, Out>>) => UnixActions<In, Out> } {
   const targetMap = new Map<string, TargetState>();
 
   if (config.server) {
@@ -240,20 +240,21 @@ export function createUnixInterface(config: {
       targetMap.clear();
     },
 
-    use<In, Out>(adapter: Partial<UnixActions<In, Out>>): UnixActions<In, Out> {
+    use<In, Out>(factory: (raw: UnixActions) => Partial<UnixActions<In, Out>>): UnixActions<In, Out> {
       const self = this;
+      const adapted = factory(self);
       return {
-        send: adapter.send
-          ? (p) => adapter.send!(p)
+        send: adapted.send
+          ? (p) => adapted.send!(p)
           : (p) => self.send(p as any) as any,
-        send_json: adapter.send_json
-          ? (p) => adapter.send_json!(p)
+        send_json: adapted.send_json
+          ? (p) => adapted.send_json!(p)
           : (p) => self.send_json(p),
-        watch: adapter.watch
-          ? (p) => adapter.watch!(p)
+        watch: adapted.watch
+          ? (p) => adapted.watch!(p)
           : (p) => self.watch(p),
-        close: adapter.close
-          ? () => adapter.close!()
+        close: adapted.close
+          ? () => adapted.close!()
           : () => self.close(),
       };
     },

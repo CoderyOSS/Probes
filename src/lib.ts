@@ -125,7 +125,7 @@ class ProbesInstanceImpl implements ProbesInstance {
       send: (p) => this.unixImpl!.send(p),
       send_json: (p) => this.unixImpl!.send_json(p),
       watch: (p) => this.unixImpl!.watch(p),
-      use: (adapter) => this.unixImpl!.use(adapter),
+      use: (factory) => this.unixImpl!.use(factory),
     };
   }
 
@@ -210,15 +210,23 @@ async function pollSocket(path: string, intervalMs: number, timeoutMs: number): 
   while (Date.now() - start < timeoutMs) {
     try {
       await new Promise<void>((resolve, reject) => {
-        const conn = Bun.connect({
-          unix: path,
-          socket: {
-            open(socket) { socket.end(); resolve(); },
-            error(_s, err) { reject(err); },
-            close() { reject(new Error("closed")); },
-          },
-        });
-        setTimeout(() => reject(new Error("poll timeout")), 500);
+        const timer = setTimeout(() => {
+          reject(new Error("poll timeout"));
+        }, 1000);
+        try {
+          Bun.connect({
+            unix: path,
+            socket: {
+              open(socket) { clearTimeout(timer); socket.end(); resolve(); },
+              data() {},
+              error(_s, err) { clearTimeout(timer); reject(err); },
+              close() { clearTimeout(timer); reject(new Error("socket closed before open")); },
+            },
+          });
+        } catch (err) {
+          clearTimeout(timer);
+          reject(err);
+        }
       });
       return;
     } catch {}
