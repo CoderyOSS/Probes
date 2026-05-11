@@ -49,6 +49,8 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
   const db = new Database(dbPath);
   db.exec("PRAGMA journal_mode = WAL");
 
+  let _fixtureTables: string[] = [];
+
   return {
     async put({ table, rows }) {
       db.exec(`DROP TABLE IF EXISTS "${table}"`);
@@ -152,12 +154,18 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
       for (const [table, rows] of Object.entries(data)) {
         if (Array.isArray(rows)) {
           await this.put({ table, rows });
+          if (!_fixtureTables.includes(table)) {
+            _fixtureTables.push(table);
+          }
         }
       }
     },
 
     async unfixture() {
-      await this.reset();
+      for (const table of _fixtureTables) {
+        db.exec(`DROP TABLE IF EXISTS "${table}"`);
+      }
+      _fixtureTables = [];
     },
   };
 }

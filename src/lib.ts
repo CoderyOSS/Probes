@@ -235,14 +235,12 @@ async function autoInit(): Promise<void> {
 
   if (config.launcher) {
     const cmdParts = config.launcher.command.split(/\s+/);
-    console.log(`probes: launching ${cmdParts.join(" ")} in ${configDir}`);
     _launcherProc = spawn({
       cmd: cmdParts,
       cwd: configDir,
       stdout: "inherit",
       stderr: "inherit",
     });
-    console.log(`probes: launcher pid ${_launcherProc.pid}`);
   }
 
   if (config.launcher?.ready_socket) {
