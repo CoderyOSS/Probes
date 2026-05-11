@@ -110,6 +110,14 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
         });
         insertAll(rows);
         _seededTables.add(table);
+        record?.push({
+          kind: "send",
+          time: new Date().toISOString(),
+          interface: "sql",
+          action: "put",
+          path: table,
+          data: `${rows.length} rows`,
+        });
       }
     },
 
@@ -160,6 +168,13 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
       if (params?.table) {
         db.exec(`DELETE FROM "${params.table}"`);
         _seededTables.delete(params.table);
+        record?.push({
+          kind: "send",
+          time: new Date().toISOString(),
+          interface: "sql",
+          action: "clear",
+          data: `table: ${params.table}`,
+        });
       } else if (params?.all) {
         const tables = db.prepare(
           "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
@@ -168,11 +183,25 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
           db.exec(`DELETE FROM "${t.name}"`);
         }
         _seededTables.clear();
+        record?.push({
+          kind: "send",
+          time: new Date().toISOString(),
+          interface: "sql",
+          action: "clear",
+          data: "all tables",
+        });
       } else {
         for (const table of _seededTables) {
           db.exec(`DELETE FROM "${table}"`);
         }
         _seededTables.clear();
+        record?.push({
+          kind: "send",
+          time: new Date().toISOString(),
+          interface: "sql",
+          action: "clear",
+          data: "seeded tables",
+        });
       }
     },
 
