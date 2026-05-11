@@ -95,6 +95,7 @@ export interface ProofEntry {
 
 export interface RecordConfig {
   output_path: string;
+  title?: string;
 }
 
 export interface CapturedWsMessage {
@@ -202,4 +203,10 @@ export interface ProbesInstance {
   };
   configure: (partial: Partial<ProbesConfig>) => Promise<ProbesConfig>;
   close: () => Promise<void>;
+}
+
+export interface ProbesGroup {
+  attach(): Promise<ProbesInstance>;
+  detach(): Promise<void>;
+  onTeardown(fn: () => Promise<void>): void;
 }

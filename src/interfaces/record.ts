@@ -52,7 +52,8 @@ export function createRecordInterface(config: RecordConfig): RecordActions {
       const passes = entries.filter((e) => e.result === "pass").length;
       const fails = entries.filter((e) => e.result === "fail").length;
 
-      let md = `# ShellGate E2E Proof Records\n\n`;
+      const title = config.title ?? "E2E Proof Records";
+      let md = `# ${title}\n\n`;
       md += `**Date:** ${new Date().toISOString()}\n`;
       md += `**Tests:** ${entries.length} run, ${passes} pass, ${fails} fail\n`;
       md += `**Duration:** ${totalDuration}ms\n\n`;

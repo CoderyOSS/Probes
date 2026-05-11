@@ -1,6 +1,6 @@
 {
   "name": "@codery/probes",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "MCP server and library for E2E continuous testing — HTTP, SQL, FS, TCP, WebSocket",
   "license": "MIT",
   "type": "module",

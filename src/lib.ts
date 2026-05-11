@@ -7,7 +7,7 @@ import { createWsServerInterface, type WsServerActions } from "./interfaces/ws_s
 import { createWsClientInterface, type WsClientActions } from "./interfaces/ws_client";
 import { createUnixInterface, type UnixActions } from "./interfaces/unix";
 import { createRecordInterface, type RecordActions, type RecordBuffer } from "./interfaces/record";
-import type { ProbesConfig, ProbesInstance } from "./interfaces/types";
+import type { ProbesConfig, ProbesInstance, ProbesGroup } from "./interfaces/types";
 
 class ProbesInstanceImpl implements ProbesInstance {
   private config: ProbesConfig;
@@ -19,6 +19,7 @@ class ProbesInstanceImpl implements ProbesInstance {
   private wsClientImpl?: WsClientActions;
   private unixImpl?: UnixActions;
   private recordImpl?: RecordActions;
+  private closed = false;
 
   constructor(config: ProbesConfig) {
     this.config = config;
@@ -184,6 +185,8 @@ class ProbesInstanceImpl implements ProbesInstance {
   }
 
   async close() {
+    if (this.closed) return;
+    this.closed = true;
     this.sqlImpl?.close();
     this.httpImpl?.close();
     this.fsImpl?.close();
@@ -192,6 +195,14 @@ class ProbesInstanceImpl implements ProbesInstance {
     this.wsClientImpl?.close();
     this.unixImpl?.close();
     this.recordImpl?.close();
+    this.sqlImpl = undefined;
+    this.httpImpl = undefined;
+    this.fsImpl = undefined;
+    this.tcpImpl = undefined;
+    this.wsServerImpl = undefined;
+    this.wsClientImpl = undefined;
+    this.unixImpl = undefined;
+    this.recordImpl = undefined;
   }
 }
 
@@ -202,5 +213,53 @@ export async function probes(config: Partial<ProbesConfig>): Promise<ProbesInsta
   return instance;
 }
 
+export function group(config: Partial<ProbesConfig>): ProbesGroup {
+  const validated = validateConfig(config);
+  let instance: ProbesInstanceImpl | null = null;
+  let consumers = 0;
+  let closed = false;
+  const teardownHooks: (() => Promise<void>)[] = [];
+
+  return {
+    async attach() {
+      if (closed) {
+        instance = new ProbesInstanceImpl(validated);
+        await instance.init();
+        closed = false;
+      }
+      if (!instance) {
+        instance = new ProbesInstanceImpl(validated);
+        await instance.init();
+      }
+      consumers++;
+      return instance;
+    },
+
+    async detach() {
+      consumers = Math.max(0, consumers - 1);
+      if (consumers > 0) return;
+
+      for (const hook of teardownHooks) {
+        try {
+          await hook();
+        } catch (e) {
+          console.error("probes group teardown hook failed:", e);
+        }
+      }
+      teardownHooks.length = 0;
+
+      if (instance) {
+        await instance.close();
+        instance = null;
+      }
+      closed = true;
+    },
+
+    onTeardown(fn: () => Promise<void>) {
+      teardownHooks.push(fn);
+    },
+  };
+}
+
 export { loadConfig } from "./config";
-export type { ProbesConfig, ProbesInstance } from "./interfaces/types";
+export type { ProbesConfig, ProbesInstance, ProbesGroup } from "./interfaces/types";
