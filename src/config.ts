@@ -4,6 +4,19 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import type { ProbesConfig } from "./interfaces/types";
 
+const LauncherSchema = z.object({
+  command: z.string().min(1),
+  ready_socket: z.string().optional(),
+  poll_interval_ms: z.number().int().positive().default(50),
+  poll_timeout_ms: z.number().int().positive().default(10000),
+  ready_after_ms: z.number().int().positive().optional(),
+});
+
+const ProofSchema = z.object({
+  output: z.string().default("proof-records.md"),
+  title: z.string().optional(),
+});
+
 const HttpClientSchema = z.object({
   base_url: z.string().url(),
   headers: z.record(z.string()).optional(),
@@ -112,17 +125,21 @@ const RecordSchema = z.object({
   title: z.string().optional(),
 });
 
-const ProbesConfigSchema = z
-  .object({
-    http: HttpSchema.optional(),
-    sql: SqlSchema.optional(),
-    fs: FsSchema.optional(),
-    tcp: TcpSchema.optional(),
-    ws: WsSchema.optional(),
-    unix: UnixSchema.optional(),
-    record: RecordSchema.optional(),
-  })
-  .strict();
+const InterfacesSchema = z.object({
+  http: HttpSchema.optional(),
+  sql: SqlSchema.optional(),
+  fs: FsSchema.optional(),
+  tcp: TcpSchema.optional(),
+  ws: WsSchema.optional(),
+  unix: UnixSchema.optional(),
+  record: RecordSchema.optional(),
+});
+
+const ProbesConfigSchema = z.object({
+  launcher: LauncherSchema.optional(),
+  proof: ProofSchema.default({ output: "proof-records.md" }),
+  interfaces: InterfacesSchema.optional(),
+}).strict();
 
 export function loadConfig(filePath: string): ProbesConfig {
   const ext = extname(filePath).toLowerCase();
@@ -138,7 +155,28 @@ export function loadConfig(filePath: string): ProbesConfig {
 }
 
 export function validateConfig(input: unknown): ProbesConfig {
-  return ProbesConfigSchema.parse(input) as ProbesConfig;
+  const obj = input as Record<string, unknown>;
+  if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+    const interfaceKeys = ["http", "sql", "fs", "tcp", "ws", "unix", "record"];
+    const hasFlatKeys = interfaceKeys.some((k) => k in obj);
+    if (hasFlatKeys) {
+      const ifaces = (obj.interfaces || {}) as Record<string, unknown>;
+      for (const key of interfaceKeys) {
+        if (key in obj) {
+          ifaces[key] = obj[key];
+          delete obj[key];
+        }
+      }
+      obj.interfaces = ifaces;
+    }
+    if (obj.interfaces && (obj.interfaces as Record<string, unknown>).record) {
+      const record = (obj.interfaces as Record<string, unknown>).record as Record<string, unknown>;
+      if (!obj.proof) obj.proof = {};
+      if (record.output_path) (obj.proof as Record<string, unknown>).output = record.output_path;
+      if (record.title) (obj.proof as Record<string, unknown>).title = record.title;
+    }
+  }
+  return ProbesConfigSchema.parse(obj) as ProbesConfig;
 }
 
 export function findConfigFile(startDir: string): string | null {

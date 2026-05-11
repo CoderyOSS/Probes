@@ -12,20 +12,20 @@ describe("loadConfig", () => {
   it("loads YAML config from file", () => {
     writeFileSync(
       join(TMP, "probes.yml"),
-      `http:\n  client:\n    base_url: "http://localhost:3000"\nsql:\n  path: "./test.db"\n`
+      `interfaces:\n  http:\n    client:\n      base_url: "http://localhost:3000"\n  sql:\n    path: "./test.db"\n`
     );
     const config = loadConfig(join(TMP, "probes.yml"));
-    expect(config.http?.client?.base_url).toBe("http://localhost:3000");
-    expect(config.sql?.path).toBe("./test.db");
+    expect(config.interfaces?.http?.client?.base_url).toBe("http://localhost:3000");
+    expect(config.interfaces?.sql?.path).toBe("./test.db");
   });
 
   it("loads JSON config from file", () => {
     writeFileSync(
       join(TMP, "probes.json"),
-      JSON.stringify({ sql: { path: "./test.db" } })
+      JSON.stringify({ interfaces: { sql: { path: "./test.db" } } })
     );
     const config = loadConfig(join(TMP, "probes.json"));
-    expect(config.sql?.path).toBe("./test.db");
+    expect(config.interfaces?.sql?.path).toBe("./test.db");
   });
 
   it("throws on missing file", () => {
@@ -41,37 +41,37 @@ describe("loadConfig", () => {
 describe("validateConfig", () => {
   it("accepts valid partial config", () => {
     const config = validateConfig({
-      http: { client: { base_url: "http://localhost:3000" } },
+      interfaces: { http: { client: { base_url: "http://localhost:3000" } } },
     });
-    expect(config.http?.client?.base_url).toBe("http://localhost:3000");
+    expect(config.interfaces?.http?.client?.base_url).toBe("http://localhost:3000");
   });
 
   it("accepts empty config", () => {
     const config = validateConfig({});
-    expect(config).toEqual({});
+    expect(config.proof).toEqual({ output: "proof-records.md" });
   });
 
-  it("rejects invalid http.client.base_url", () => {
+  it("rejects invalid interfaces.http.client.base_url", () => {
     expect(() =>
-      validateConfig({ http: { client: { base_url: "not-a-url" } } })
+      validateConfig({ interfaces: { http: { client: { base_url: "not-a-url" } } } })
     ).toThrow();
   });
 
   it("rejects unknown top-level keys", () => {
     expect(() =>
-      validateConfig({ http: {}, unknown_thing: true } as any)
+      validateConfig({ interfaces: { http: {} as any }, unknown_thing: true } as any)
     ).toThrow();
   });
 
-  it("rejects sql.path with traversal", () => {
+  it("rejects interfaces.sql.path with traversal", () => {
     expect(() =>
-      validateConfig({ sql: { path: "../etc/passwd" } })
+      validateConfig({ interfaces: { sql: { path: "../etc/passwd" } } })
     ).toThrow();
   });
 
-  it("rejects fs.root with traversal", () => {
+  it("rejects interfaces.fs.root with traversal", () => {
     expect(() =>
-      validateConfig({ fs: { root: "../../etc" } })
+      validateConfig({ interfaces: { fs: { root: "../../etc" } } })
     ).toThrow();
   });
 });

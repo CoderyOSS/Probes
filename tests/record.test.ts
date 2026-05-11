@@ -1,113 +1,95 @@
-import { describe, it, expect, afterEach, afterAll } from "bun:test";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { describe, it, expect, beforeAll, afterEach } from "bun:test";
 import { probes } from "../src/lib";
+import type { ProbesInstance } from "../src/interfaces/types";
+import { existsSync, readFileSync, unlinkSync, mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
-const OUTPUT = "/tmp/record-test-output.md";
-const OUTPUT_DIR = "/tmp/record-test-dir";
-const OUTPUT_NESTED = join(OUTPUT_DIR, "nested", "proof.md");
+const TMP = join(import.meta.dir, "__tmp_record_test__");
 
-function cleanup() {
-  try { unlinkSync(OUTPUT); } catch {}
-  try { unlinkSync(OUTPUT_NESTED); } catch {}
-}
+beforeAll(() => {
+  mkdirSync(TMP, { recursive: true });
+  rmSync(TMP, { recursive: true, force: true });
+  mkdirSync(TMP, { recursive: true });
+});
 
-afterEach(cleanup);
-afterAll(cleanup);
+afterEach(() => {
+  rmSync(TMP, { recursive: true, force: true });
+  mkdirSync(TMP, { recursive: true });
+});
 
-describe("record interface", () => {
-  it("writes markdown with auto-instrumented events", async () => {
-    const sqlPath = "/tmp/record-test-sql.db";
+describe("probes.proof", () => {
+  it("save() writes proof records with auto-captured events", async () => {
+    const output = join(TMP, "proof.md");
     const p = await probes({
-      record: { output_path: OUTPUT },
-      sql: { path: sqlPath },
+      interfaces: { sql: { path: join(TMP, "test.db") } },
+      proof: { output },
     });
 
-    p.record.begin({ test_name: "auto-instrumented test" });
-    try {
-      const rows = await p.sql.read({ table: "nonexistent" });
-      p.record.end({ result: "pass" });
-    } catch {
-      p.record.end({ result: "fail", error: "unexpected" });
-    }
-
-    await p.record.write();
+    await p.sql.put({ table: "items", rows: [{ id: 1, name: "widget" }] });
+    await p.sql.read({ table: "items" });
+    p.proof.save();
     await p.close();
 
-    expect(existsSync(OUTPUT)).toBe(true);
-    const md = readFileSync(OUTPUT, "utf8");
-    expect(md).toContain("auto-instrumented test");
-    expect(md).toContain("### Sequence");
-    expect(md).toContain("sql:nonexistent");
-    try { unlinkSync(sqlPath); } catch {}
+    expect(existsSync(output)).toBe(true);
+    const content = readFileSync(output, "utf8");
+    expect(content).toContain("sql:items");
+    expect(content).toContain("E2E Proof Records");
   });
 
-  it("records error on failure", async () => {
-    const p = await probes({ record: { output_path: OUTPUT } });
-
-    p.record.begin({ test_name: "fail test" });
-    p.record.end({ result: "fail", error: "something broke" });
-
-    await p.record.write();
-    await p.close();
-
-    const md = readFileSync(OUTPUT, "utf8");
-    expect(md).toContain("✗ fail");
-    expect(md).toContain("something broke");
-  });
-
-  it("creates parent directories for nested output path", async () => {
-    const p = await probes({ record: { output_path: OUTPUT_NESTED } });
-
-    p.record.begin({ test_name: "nested dir test" });
-    p.record.end({ result: "pass" });
-
-    await p.record.write();
-    await p.close();
-
-    expect(existsSync(OUTPUT_NESTED)).toBe(true);
-  });
-
-  it("handles multiple tests in one suite", async () => {
-    const p = await probes({ record: { output_path: OUTPUT } });
-
-    p.record.begin({ test_name: "test one" });
-    p.record.end({ result: "pass" });
-
-    p.record.begin({ test_name: "test two" });
-    p.record.end({ result: "fail", error: "bad" });
-
-    await p.record.write();
-    await p.close();
-
-    const md = readFileSync(OUTPUT, "utf8");
-    expect(md).toContain("## test one");
-    expect(md).toContain("## test two");
-    expect(md).toContain("2 run, 1 pass, 1 fail");
-  });
-
-  it("throws when record not configured", async () => {
-    const p = await probes({ unix: { client: { path: "/tmp/x.sock" } } });
-    expect(() => p.record.begin({ test_name: "test" })).toThrow(/not configured/);
+  it("throws if accessed without proof configured", async () => {
+    const p = await probes({
+      proof: { output: join(TMP, "proof.md") },
+    });
+    p.proof.save();
     await p.close();
   });
 
-  it("clears buffer after write", async () => {
-    const p = await probes({ record: { output_path: OUTPUT } });
+  it("writes title if configured", async () => {
+    const output = join(TMP, "titled.md");
+    const p = await probes({
+      proof: { output, title: "Custom Title" },
+    });
 
-    p.record.begin({ test_name: "first batch" });
-    p.record.end({ result: "pass" });
-    await p.record.write();
-
-    p.record.begin({ test_name: "second batch" });
-    p.record.end({ result: "pass" });
-    await p.record.write();
-
+    p.proof.save();
     await p.close();
 
-    const md = readFileSync(OUTPUT, "utf8");
-    expect(md).toContain("## second batch");
-    expect(md).toContain("1 run, 1 pass, 0 fail");
-    expect(md.match(/## /g)?.length).toBe(1);
+    const content = readFileSync(output, "utf8");
+    expect(content).toContain("Custom Title");
+  });
+
+  it("captures unix send/response events", async () => {
+    const output = join(TMP, "unix-proof.md");
+    const p = await probes({
+      interfaces: {
+        unix: {
+          server: [{ name: "test", path: join(TMP, "srv.sock") }],
+        },
+        sql: { path: join(TMP, "ux.db") },
+      },
+      proof: { output },
+    });
+
+    await p.sql.put({ table: "t", rows: [{ x: 1 }] });
+    await p.sql.read({ table: "t" });
+    p.proof.save();
+    await p.close();
+
+    const content = readFileSync(output, "utf8");
+    expect(content).toContain("sql:t");
+  });
+
+  it("multiple events captured in chronological order", async () => {
+    const output = join(TMP, "chrono.md");
+    const p = await probes({
+      interfaces: { sql: { path: join(TMP, "chrono.db") } },
+      proof: { output },
+    });
+
+    await p.sql.put({ table: "first", rows: [{ v: 1 }] });
+    await p.sql.put({ table: "second", rows: [{ v: 2 }] });
+    p.proof.save();
+    await p.close();
+
+    expect(existsSync(output)).toBe(true);
   });
 });

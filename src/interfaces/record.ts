@@ -1,4 +1,4 @@
-import type { RecordConfig, RecordEvent, ProofEntry } from "./types";
+import type { ProofConfig, RecordEvent } from "./types";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -7,95 +7,50 @@ export interface RecordBuffer {
 }
 
 export interface RecordActions {
-  begin: (params: { test_name: string }) => void;
-  end: (params: { result: "pass" | "fail"; error?: string }) => void;
-  write: () => Promise<void>;
-  close: () => void;
+  save: () => void;
   buffer: RecordBuffer;
 }
 
-export function createRecordInterface(config: RecordConfig): RecordActions {
-  const entries: ProofEntry[] = [];
-  let current: ProofEntry | null = null;
-  let suiteStartTime = Date.now();
+export function createRecordInterface(config: ProofConfig): RecordActions {
+  const events: RecordEvent[] = [];
+  const sessionStart = Date.now();
 
   const buffer: RecordBuffer = {
     push(event) {
-      if (!current) return;
-      current.events.push(event);
+      events.push(event);
     },
   };
 
-  return {
-    buffer,
-    begin({ test_name }) {
-      current = {
-        test_name,
-        started_at: new Date().toISOString(),
-        duration_ms: 0,
-        result: "pass",
-        events: [],
-      };
-    },
+  function save() {
+    const totalDuration = Date.now() - sessionStart;
 
-    end({ result, error }) {
-      if (!current) return;
-      current.duration_ms = Date.now() - new Date(current.started_at).getTime();
-      current.result = result;
-      if (error) current.error = error;
-      entries.push(current);
-      current = null;
-    },
+    const title = config.title ?? "E2E Proof Records";
+    let md = `# ${title}\n\n`;
+    md += `**Date:** ${new Date().toISOString()}\n`;
+    md += `**Events:** ${events.length}\n`;
+    md += `**Duration:** ${totalDuration}ms\n\n`;
+    md += `---\n\n`;
 
-    async write() {
-      const totalDuration = Date.now() - suiteStartTime;
-      const passes = entries.filter((e) => e.result === "pass").length;
-      const fails = entries.filter((e) => e.result === "fail").length;
-
-      const title = config.title ?? "E2E Proof Records";
-      let md = `# ${title}\n\n`;
-      md += `**Date:** ${new Date().toISOString()}\n`;
-      md += `**Tests:** ${entries.length} run, ${passes} pass, ${fails} fail\n`;
-      md += `**Duration:** ${totalDuration}ms\n\n`;
-      md += `---\n\n`;
-
-      for (const entry of entries) {
-        const statusIcon = entry.result === "pass" ? "✓" : "✗";
-        md += `## ${entry.test_name}\n\n`;
-        md += `**Status:** ${statusIcon} ${entry.result}`;
-        if (entry.error) {
-          md += ` | **Error:** ${truncate(entry.error, 200)}`;
-        }
-        md += ` | **Duration:** ${entry.duration_ms}ms\n\n`;
-
-        const sorted = [...entry.events].sort((a, b) => a.time.localeCompare(b.time));
-
-        if (sorted.length > 0) {
-          md += `### Sequence\n\n`;
-          md += `| # | Time | Direction | Step | Detail |\n`;
-          md += `|---|------|-----------|------|--------|\n`;
-          for (let i = 0; i < sorted.length; i++) {
-            const e = sorted[i];
-            md += `| ${i + 1} | ${shortTime(e.time)} | ${eventDirection(e)} | ${eventStep(e)} | \`${eventDetail(e)}\` |\n`;
-          }
-          md += `\n`;
-        }
-
-        md += `---\n\n`;
+    if (events.length > 0) {
+      md += `### Sequence\n\n`;
+      md += `| # | Time | Direction | Step | Detail |\n`;
+      md += `|---|------|-----------|------|--------|\n`;
+      const sorted = [...events].sort((a, b) => a.time.localeCompare(b.time));
+      for (let i = 0; i < sorted.length; i++) {
+        const e = sorted[i];
+        md += `| ${i + 1} | ${shortTime(e.time)} | ${eventDirection(e)} | ${eventStep(e)} | \`${eventDetail(e)}\` |\n`;
       }
+      md += `\n`;
+    }
 
-      const dir = dirname(config.output_path);
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(config.output_path, md);
-      suiteStartTime = Date.now();
-      entries.length = 0;
-    },
+    md += `---\n\n`;
 
-    close() {
-      current = null;
-      entries.length = 0;
-    },
-  };
+    const dir = dirname(config.output);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(config.output, md);
+  }
+
+  return { save, buffer };
 }
 
 function shortTime(iso: string): string {

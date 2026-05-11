@@ -180,5 +180,29 @@ export function createHttpInterface(config: HttpConfig, record?: RecordBuffer): 
         serverInstance = null;
       }
     },
+
+    use<In, Out>(adapter: Partial<HttpActions>): HttpActions {
+      const self = this;
+      return {
+        send: adapter.send
+          ? (p) => adapter.send!(p)
+          : (p) => self.send(p),
+        put: adapter.put
+          ? (p) => adapter.put!(p)
+          : (p) => self.put(p),
+        read: adapter.read
+          ? () => adapter.read!()
+          : () => self.read(),
+        watch: adapter.watch
+          ? (p) => adapter.watch!(p)
+          : (p) => self.watch(p),
+        reset: adapter.reset
+          ? () => adapter.reset!()
+          : () => self.reset(),
+        close: adapter.close
+          ? () => adapter.close!()
+          : () => self.close(),
+      };
+    },
   };
 }

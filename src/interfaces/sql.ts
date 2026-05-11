@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { parse as parseYaml } from "yaml";
 import type { SqlConfig } from "./types";
 import type { RecordBuffer } from "./record";
 
@@ -16,6 +17,8 @@ export interface SqlActions {
     limit?: number;
   }) => Promise<Record<string, unknown>[]>;
   reset: (params?: { table?: string }) => Promise<void>;
+  fixture: (path: string) => Promise<void>;
+  unfixture: () => Promise<void>;
   close: () => void;
 }
 
@@ -140,6 +143,21 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
 
     close() {
       db.close();
+    },
+
+    async fixture(path: string) {
+      const resolvedPath = resolve(path);
+      const raw = readFileSync(resolvedPath, "utf8");
+      const data = parseYaml(raw) as Record<string, Record<string, unknown>[]>;
+      for (const [table, rows] of Object.entries(data)) {
+        if (Array.isArray(rows)) {
+          await this.put({ table, rows });
+        }
+      }
+    },
+
+    async unfixture() {
+      await this.reset();
     },
   };
 }

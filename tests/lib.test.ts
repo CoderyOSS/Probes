@@ -79,11 +79,12 @@ describe("probes() factory", () => {
       sql: { path: "./__tmp_lib_test__/after.db" },
     });
 
-    expect(updated.sql?.path).toBe("./__tmp_lib_test__/after.db");
+    expect(updated.interfaces?.sql?.path).toBe("./__tmp_lib_test__/after.db");
   });
 
-  it("throws when no interface configured", async () => {
-    expect(probes({})).rejects.toThrow();
+  it("creates instance with empty config", async () => {
+    const p = track(await probes({}));
+    expect(p.proof).toBeDefined();
   });
 
   it("creates instance with tcp only", async () => {

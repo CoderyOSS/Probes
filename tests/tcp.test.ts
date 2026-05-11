@@ -11,8 +11,8 @@ describe("tcp config validation", () => {
         { name: "mongo_mock", port: 27017, handshake: "mongodb" },
       ],
     });
-    expect(config.tcp).toHaveLength(1);
-    expect(config.tcp![0].name).toBe("mongo_mock");
+    expect(config.interfaces?.tcp).toHaveLength(1);
+    expect(config.interfaces!.tcp![0].name).toBe("mongo_mock");
   });
 
   it("accepts tcp config with idle_timeout_ms", () => {
@@ -21,14 +21,14 @@ describe("tcp config validation", () => {
         { name: "svc", port: 9000, idle_timeout_ms: 5000 },
       ],
     });
-    expect(config.tcp![0].idle_timeout_ms).toBe(5000);
+    expect(config.interfaces!.tcp![0].idle_timeout_ms).toBe(5000);
   });
 
   it("accepts tcp config without handshake", () => {
     const config = validateConfig({
       tcp: [{ name: "raw_svc", port: 9000 }],
     });
-    expect(config.tcp![0].handshake).toBeUndefined();
+    expect(config.interfaces!.tcp![0].handshake).toBeUndefined();
   });
 
   it("rejects duplicate tcp target names", () => {

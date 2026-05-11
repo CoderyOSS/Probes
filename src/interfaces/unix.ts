@@ -12,8 +12,8 @@ interface TargetState {
   pendingReject: ((reason: Error) => void) | null;
 }
 
-export interface UnixActions {
-  send: (params: { data: string; path?: string; timeout_ms?: number }) => Promise<string>;
+export interface UnixActions<In = string, Out = string> {
+  send: (params: { data: In; path?: string; timeout_ms?: number }) => Promise<Out>;
   send_json: (params: { data: unknown; path?: string; timeout_ms?: number }) => Promise<unknown>;
   watch: (params: { target: string; timeout_ms?: number }) => AsyncIterable<CapturedUnixData>;
   close: () => void;
@@ -22,7 +22,7 @@ export interface UnixActions {
 export function createUnixInterface(config: {
   client?: UnixClientConfig;
   server?: UnixServerConfig;
-}, record?: RecordBuffer): UnixActions {
+}, record?: RecordBuffer): UnixActions & { use: <In, Out>(adapter: Partial<UnixActions<In, Out>>) => UnixActions<In, Out> } {
   const targetMap = new Map<string, TargetState>();
 
   if (config.server) {
@@ -238,6 +238,24 @@ export function createUnixInterface(config: {
         } catch {}
       }
       targetMap.clear();
+    },
+
+    use<In, Out>(adapter: Partial<UnixActions<In, Out>>): UnixActions<In, Out> {
+      const self = this;
+      return {
+        send: adapter.send
+          ? (p) => adapter.send!(p)
+          : (p) => self.send(p as any) as any,
+        send_json: adapter.send_json
+          ? (p) => adapter.send_json!(p)
+          : (p) => self.send_json(p),
+        watch: adapter.watch
+          ? (p) => adapter.watch!(p)
+          : (p) => self.watch(p),
+        close: adapter.close
+          ? () => adapter.close!()
+          : () => self.close(),
+      };
     },
   };
 }

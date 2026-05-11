@@ -1,3 +1,26 @@
+export interface LauncherConfig {
+  command: string;
+  ready_socket?: string;
+  poll_interval_ms?: number;
+  poll_timeout_ms?: number;
+  ready_after_ms?: number;
+}
+
+export interface ProofConfig {
+  output: string;
+  title?: string;
+}
+
+export interface InterfacesConfig {
+  http?: HttpConfig;
+  sql?: SqlConfig;
+  fs?: FsConfig;
+  tcp?: TcpConfig;
+  ws?: WsConfig;
+  unix?: UnixConfig;
+  record?: RecordConfig;
+}
+
 export interface HttpClientConfig {
   base_url: string;
   headers?: Record<string, string>;
@@ -71,32 +94,15 @@ export interface UnixConfig {
   server?: UnixServerConfig;
 }
 
-export interface RecordCall {
-  time: string;
-  interface: string;
-  action: string;
-  path?: string;
-  data?: string;
+export interface RecordConfig {
+  output_path: string;
+  title?: string;
 }
 
 export type RecordEvent =
   | { kind: "send"; time: string; interface: string; action: string; path?: string; data?: string }
   | { kind: "response"; time: string; interface: string; raw?: string; parsed?: unknown }
   | { kind: "recv"; time: string; source: string; data: unknown };
-
-export interface ProofEntry {
-  test_name: string;
-  started_at: string;
-  duration_ms: number;
-  result: "pass" | "fail";
-  error?: string;
-  events: RecordEvent[];
-}
-
-export interface RecordConfig {
-  output_path: string;
-  title?: string;
-}
 
 export interface CapturedWsMessage {
   data: string;
@@ -119,13 +125,9 @@ export interface CapturedUnixData {
 }
 
 export interface ProbesConfig {
-  http?: HttpConfig;
-  sql?: SqlConfig;
-  fs?: FsConfig;
-  tcp?: TcpConfig;
-  ws?: WsConfig;
-  unix?: UnixConfig;
-  record?: RecordConfig;
+  launcher?: LauncherConfig;
+  proof: ProofConfig;
+  interfaces?: InterfacesConfig;
 }
 
 export interface CapturedRequest {
@@ -140,6 +142,13 @@ export interface HttpResponse {
   status: number;
   headers: Record<string, string>;
   body: unknown;
+}
+
+export interface UnixActions<In = string, Out = string> {
+  send: (params: { data: In; path?: string; timeout_ms?: number }) => Promise<Out>;
+  send_json: (params: { data: unknown; path?: string; timeout_ms?: number }) => Promise<unknown>;
+  watch: (params: { target: string; timeout_ms?: number }) => AsyncIterable<CapturedUnixData>;
+  close: () => void;
 }
 
 export interface ProbesInstance {
@@ -158,6 +167,7 @@ export interface ProbesInstance {
     read: () => Promise<CapturedRequest[]>;
     watch: (params?: { timeout_ms?: number }) => Promise<CapturedRequest>;
     reset: () => Promise<void>;
+    use: <In, Out>(adapter: Partial<ProbesInstance["http"]>) => ProbesInstance["http"];
   };
   sql: {
     put: (params: { table: string; rows: Record<string, unknown>[] }) => Promise<void>;
@@ -168,6 +178,8 @@ export interface ProbesInstance {
       limit?: number;
     }) => Promise<Record<string, unknown>[]>;
     reset: (params?: { table?: string }) => Promise<void>;
+    fixture: (path: string) => Promise<void>;
+    unfixture: () => Promise<void>;
   };
   fs: {
     put: (params: { path: string; content: string }) => Promise<void>;
@@ -195,18 +207,11 @@ export interface ProbesInstance {
     send: (params: { data: string; path?: string; timeout_ms?: number }) => Promise<string>;
     send_json: (params: { data: unknown; path?: string; timeout_ms?: number }) => Promise<unknown>;
     watch: (params: { target: string; timeout_ms?: number }) => AsyncIterable<CapturedUnixData>;
+    use: <In, Out>(adapter: Partial<UnixActions<In, Out>>) => UnixActions<In, Out>;
   };
-  record: {
-    begin: (params: { test_name: string }) => void;
-    end: (params: { result: "pass" | "fail"; error?: string }) => void;
-    write: () => Promise<void>;
+  proof: {
+    save: () => void;
   };
   configure: (partial: Partial<ProbesConfig>) => Promise<ProbesConfig>;
   close: () => Promise<void>;
-}
-
-export interface ProbesGroup {
-  attach(): Promise<ProbesInstance>;
-  detach(): Promise<void>;
-  onTeardown(fn: () => Promise<void>): void;
 }

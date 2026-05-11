@@ -1,4 +1,4 @@
-import { validateConfig, loadConfig } from "./config";
+import { validateConfig, loadConfig, findConfigFile } from "./config";
 import { createSqlInterface, type SqlActions } from "./interfaces/sql";
 import { createHttpInterface, type HttpActions } from "./interfaces/http";
 import { createFsInterface, type FsActions } from "./interfaces/fs";
@@ -7,18 +7,25 @@ import { createWsServerInterface, type WsServerActions } from "./interfaces/ws_s
 import { createWsClientInterface, type WsClientActions } from "./interfaces/ws_client";
 import { createUnixInterface, type UnixActions } from "./interfaces/unix";
 import { createRecordInterface, type RecordActions, type RecordBuffer } from "./interfaces/record";
-import type { ProbesConfig, ProbesInstance, ProbesGroup } from "./interfaces/types";
+import type { ProbesConfig, ProbesInstance } from "./interfaces/types";
+import { spawn, type Subprocess } from "bun";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+
+let _instance: ProbesInstanceImpl | null = null;
+let _initPromise: Promise<void> | null = null;
+let _launcherProc: Subprocess | null = null;
 
 class ProbesInstanceImpl implements ProbesInstance {
   private config: ProbesConfig;
   private sqlImpl?: SqlActions & { close: () => void };
-  private httpImpl?: HttpActions & { close: () => void };
+  private httpImpl?: (HttpActions & { close: () => void }) & { use: <In, Out>(adapter: Partial<ProbesInstance["http"]>) => ProbesInstance["http"] };
   private fsImpl?: FsActions & { close: () => void };
   private tcpImpl?: TcpActions;
   private wsServerImpl?: WsServerActions;
   private wsClientImpl?: WsClientActions;
-  private unixImpl?: UnixActions;
-  private recordImpl?: RecordActions;
+  private unixImpl?: UnixActions & { use: <In, Out>(adapter: Partial<UnixActions<In, Out>>) => UnixActions<In, Out> };
+  private proofImpl?: RecordActions;
   private closed = false;
 
   constructor(config: ProbesConfig) {
@@ -26,35 +33,32 @@ class ProbesInstanceImpl implements ProbesInstance {
   }
 
   async init() {
-    let recordBuf: RecordBuffer | undefined;
-    if (this.config.record) {
-      this.recordImpl = createRecordInterface(this.config.record);
-      recordBuf = this.recordImpl.buffer;
-    }
-    if (this.config.sql) {
-      this.sqlImpl = createSqlInterface(this.config.sql, recordBuf);
-    }
-    if (this.config.http) {
-      this.httpImpl = createHttpInterface(this.config.http, recordBuf);
-    }
-    if (this.config.fs) {
-      this.fsImpl = createFsInterface(this.config.fs, recordBuf);
-    }
-    if (this.config.tcp) {
-      this.tcpImpl = createTcpInterface(this.config.tcp, recordBuf);
-    }
-    if (this.config.ws?.server) {
-      this.wsServerImpl = createWsServerInterface(this.config.ws.server, recordBuf);
-    }
-    if (this.config.ws?.client) {
-      this.wsClientImpl = await createWsClientInterface(this.config.ws.client, recordBuf);
-    }
-    if (this.config.unix) {
-      this.unixImpl = createUnixInterface(this.config.unix, recordBuf);
-    }
+    this.proofImpl = createRecordInterface(this.config.proof);
+    const recordBuf = this.proofImpl.buffer;
 
-    if (!this.sqlImpl && !this.httpImpl && !this.fsImpl && !this.tcpImpl && !this.wsServerImpl && !this.wsClientImpl && !this.unixImpl && !this.recordImpl) {
-      throw new Error("At least one interface must be configured (http, sql, fs, tcp, ws, unix, or record)");
+    const ifaces = this.config.interfaces;
+    if (ifaces) {
+      if (ifaces.sql) {
+        this.sqlImpl = createSqlInterface(ifaces.sql, recordBuf);
+      }
+      if (ifaces.http) {
+        this.httpImpl = createHttpInterface(ifaces.http, recordBuf) as any;
+      }
+      if (ifaces.fs) {
+        this.fsImpl = createFsInterface(ifaces.fs, recordBuf);
+      }
+      if (ifaces.tcp) {
+        this.tcpImpl = createTcpInterface(ifaces.tcp, recordBuf);
+      }
+      if (ifaces.ws?.server) {
+        this.wsServerImpl = createWsServerInterface(ifaces.ws.server, recordBuf);
+      }
+      if (ifaces.ws?.client) {
+        this.wsClientImpl = await createWsClientInterface(ifaces.ws.client, recordBuf);
+      }
+      if (ifaces.unix) {
+        this.unixImpl = createUnixInterface(ifaces.unix, recordBuf) as any;
+      }
     }
   }
 
@@ -66,6 +70,7 @@ class ProbesInstanceImpl implements ProbesInstance {
       read: () => this.httpImpl!.read(),
       watch: (p) => this.httpImpl!.watch(p),
       reset: () => this.httpImpl!.reset(),
+      use: (adapter) => this.httpImpl!.use(adapter),
     };
   }
 
@@ -75,6 +80,8 @@ class ProbesInstanceImpl implements ProbesInstance {
       put: (p) => this.sqlImpl!.put(p),
       read: (p) => this.sqlImpl!.read(p),
       reset: (p) => this.sqlImpl!.reset(p),
+      fixture: (path) => this.sqlImpl!.fixture(path),
+      unfixture: () => this.sqlImpl!.unfixture(),
     };
   }
 
@@ -118,15 +125,14 @@ class ProbesInstanceImpl implements ProbesInstance {
       send: (p) => this.unixImpl!.send(p),
       send_json: (p) => this.unixImpl!.send_json(p),
       watch: (p) => this.unixImpl!.watch(p),
+      use: (adapter) => this.unixImpl!.use(adapter),
     };
   }
 
-  get record(): ProbesInstance["record"] {
-    if (!this.recordImpl) throw new Error("Record interface not configured");
+  get proof(): ProbesInstance["proof"] {
+    if (!this.proofImpl) throw new Error("Proof not initialized");
     return {
-      begin: (p) => this.recordImpl!.begin(p),
-      end: (p) => this.recordImpl!.end(p),
-      write: () => this.recordImpl!.write(),
+      save: () => this.proofImpl!.save(),
     };
   }
 
@@ -134,50 +140,44 @@ class ProbesInstanceImpl implements ProbesInstance {
     const merged: ProbesConfig = {
       ...this.config,
       ...partial,
-      http: this.config.http || partial.http ? { ...this.config.http, ...partial.http } as ProbesConfig["http"] : undefined,
-      sql: this.config.sql || partial.sql ? { ...this.config.sql, ...partial.sql } as ProbesConfig["sql"] : undefined,
-      fs: this.config.fs || partial.fs ? { ...this.config.fs, ...partial.fs } as ProbesConfig["fs"] : undefined,
-      ws: partial.ws ?? this.config.ws,
-      unix: this.config.unix || partial.unix ? { ...this.config.unix, ...partial.unix } as ProbesConfig["unix"] : undefined,
-      record: this.config.record || partial.record ? { ...this.config.record, ...partial.record } as ProbesConfig["record"] : undefined,
+      proof: { ...this.config.proof, ...partial.proof } as ProbesConfig["proof"],
+      interfaces: {
+        ...this.config.interfaces,
+        ...partial.interfaces,
+      } as ProbesConfig["interfaces"],
     };
 
     const validated = validateConfig(merged);
+    const recordBuf = this.proofImpl?.buffer;
 
-    let recordBuf = this.recordImpl?.buffer;
-
-    if (partial.sql) {
+    const ifaces = validated.interfaces;
+    if (partial.interfaces?.sql) {
       this.sqlImpl?.close();
-      this.sqlImpl = createSqlInterface(validated.sql!, recordBuf);
+      this.sqlImpl = createSqlInterface(ifaces!.sql!, recordBuf);
     }
-    if (partial.http) {
+    if (partial.interfaces?.http) {
       this.httpImpl?.close();
-      this.httpImpl = createHttpInterface(validated.http!, recordBuf);
+      this.httpImpl = createHttpInterface(ifaces!.http!, recordBuf) as any;
     }
-    if (partial.fs) {
+    if (partial.interfaces?.fs) {
       this.fsImpl?.close();
-      this.fsImpl = createFsInterface(validated.fs!, recordBuf);
+      this.fsImpl = createFsInterface(ifaces!.fs!, recordBuf);
     }
-    if (partial.tcp) {
+    if (partial.interfaces?.tcp) {
       this.tcpImpl?.close();
-      this.tcpImpl = createTcpInterface(validated.tcp!, recordBuf);
+      this.tcpImpl = createTcpInterface(ifaces!.tcp!, recordBuf);
     }
-    if (partial.ws?.server) {
+    if (partial.interfaces?.ws?.server) {
       this.wsServerImpl?.close();
-      this.wsServerImpl = createWsServerInterface(validated.ws!.server!, recordBuf);
+      this.wsServerImpl = createWsServerInterface(ifaces!.ws!.server!, recordBuf);
     }
-    if (partial.ws?.client) {
+    if (partial.interfaces?.ws?.client) {
       this.wsClientImpl?.close();
-      this.wsClientImpl = await createWsClientInterface(validated.ws!.client!, recordBuf);
+      this.wsClientImpl = await createWsClientInterface(ifaces!.ws!.client!, recordBuf);
     }
-    if (partial.unix) {
+    if (partial.interfaces?.unix) {
       this.unixImpl?.close();
-      this.unixImpl = createUnixInterface(validated.unix!, recordBuf);
-    }
-    if (partial.record) {
-      this.recordImpl?.close();
-      this.recordImpl = createRecordInterface(validated.record!);
-      recordBuf = this.recordImpl.buffer;
+      this.unixImpl = createUnixInterface(ifaces!.unix!, recordBuf) as any;
     }
 
     this.config = validated;
@@ -194,7 +194,6 @@ class ProbesInstanceImpl implements ProbesInstance {
     this.wsServerImpl?.close();
     this.wsClientImpl?.close();
     this.unixImpl?.close();
-    this.recordImpl?.close();
     this.sqlImpl = undefined;
     this.httpImpl = undefined;
     this.fsImpl = undefined;
@@ -202,9 +201,112 @@ class ProbesInstanceImpl implements ProbesInstance {
     this.wsServerImpl = undefined;
     this.wsClientImpl = undefined;
     this.unixImpl = undefined;
-    this.recordImpl = undefined;
+    this.proofImpl = undefined;
   }
 }
+
+async function pollSocket(path: string, intervalMs: number, timeoutMs: number): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const conn = Bun.connect({
+          unix: path,
+          socket: {
+            open(socket) { socket.end(); resolve(); },
+            error(_s, err) { reject(err); },
+            close() { reject(new Error("closed")); },
+          },
+        });
+        setTimeout(() => reject(new Error("poll timeout")), 500);
+      });
+      return;
+    } catch {}
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error(`Ready socket ${path} not available after ${timeoutMs}ms`);
+}
+
+async function autoInit(): Promise<void> {
+  const configPath = findConfigFile(process.cwd());
+  if (!configPath) return;
+
+  let config: ProbesConfig;
+  try {
+    config = loadConfig(configPath);
+  } catch (e) {
+    console.warn(`probes: failed to load ${configPath}: ${(e as Error).message}`);
+    return;
+  }
+
+  const configDir = dirname(configPath);
+
+  if (config.launcher) {
+    const cmdParts = config.launcher.command.split(/\s+/);
+    _launcherProc = spawn({
+      cmd: cmdParts,
+      cwd: configDir,
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+  }
+
+  if (config.launcher?.ready_socket) {
+    await pollSocket(
+      config.launcher.ready_socket,
+      config.launcher.poll_interval_ms ?? 50,
+      config.launcher.poll_timeout_ms ?? 10000,
+    );
+  } else if (config.launcher?.ready_after_ms) {
+    await new Promise((r) => setTimeout(r, config.launcher.ready_after_ms));
+  }
+
+  const instance = new ProbesInstanceImpl(config);
+  await instance.init();
+  _instance = instance;
+
+  process.on("exit", () => {
+    if (_instance) {
+      _instance.proof.save();
+    }
+    if (_launcherProc) {
+      _launcherProc.kill();
+    }
+  });
+}
+
+export function probesSession(config: ProbesConfig): Promise<ProbesInstance> {
+  return Promise.resolve(initManual(config));
+}
+
+async function initManual(config: ProbesConfig): Promise<ProbesInstance> {
+  const instance = new ProbesInstanceImpl(config);
+  await instance.init();
+  _instance = instance;
+  process.on("exit", () => {
+    if (_instance) _instance.proof.save();
+  });
+  return instance;
+}
+
+export const p: ProbesInstance = new Proxy({} as ProbesInstance, {
+  get(_target, key) {
+    if (!_instance) {
+      throw new Error(
+        "probes: no session active. Ensure probes.yml is in a parent directory " +
+        "and the test runner imports probes before running tests."
+      );
+    }
+    return (_instance as any)[key];
+  },
+});
+
+if (typeof Bun !== "undefined" && !process.env.PROBES_SKIP_AUTOINIT) {
+  await autoInit();
+}
+
+export { loadConfig, findConfigFile } from "./config";
+export type { ProbesConfig, ProbesInstance } from "./interfaces/types";
 
 export async function probes(config: Partial<ProbesConfig>): Promise<ProbesInstance> {
   const validated = validateConfig(config);
@@ -240,11 +342,7 @@ export function group(config: Partial<ProbesConfig>): ProbesGroup {
       if (consumers > 0) return;
 
       for (const hook of teardownHooks) {
-        try {
-          await hook();
-        } catch (e) {
-          console.error("probes group teardown hook failed:", e);
-        }
+        try { await hook(); } catch (e) { console.error("probes group teardown hook failed:", e); }
       }
       teardownHooks.length = 0;
 
@@ -261,5 +359,8 @@ export function group(config: Partial<ProbesConfig>): ProbesGroup {
   };
 }
 
-export { loadConfig } from "./config";
-export type { ProbesConfig, ProbesInstance, ProbesGroup } from "./interfaces/types";
+export interface ProbesGroup {
+  attach(): Promise<ProbesInstance>;
+  detach(): Promise<void>;
+  onTeardown(fn: () => Promise<void>): void;
+}
