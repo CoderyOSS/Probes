@@ -48,6 +48,7 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
 
   const db = new Database(dbPath);
   db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA busy_timeout = 5000");
 
   let _fixtureTables: string[] = [];
 
@@ -152,8 +153,23 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
       const raw = readFileSync(resolvedPath, "utf8");
       const data = parseYaml(raw) as Record<string, Record<string, unknown>[]>;
       for (const [table, rows] of Object.entries(data)) {
-        if (Array.isArray(rows)) {
-          await this.put({ table, rows });
+        if (Array.isArray(rows) && rows.length > 0) {
+          const columns = Object.keys(rows[0]);
+          const placeholders = columns.map(() => "?").join(", ");
+          const sql = `INSERT OR REPLACE INTO "${table}" (${columns.map((c) => `"${c}"`).join(", ")}) VALUES (${placeholders})`;
+          const insert = db.prepare(sql);
+          const insertAll = db.transaction((rs: Record<string, unknown>[]) => {
+            for (const row of rs) {
+              const values = columns.map((col) => {
+                const v = row[col];
+                if (typeof v === "boolean") return v ? 1 : 0;
+                if (typeof v === "object" && v !== null) return JSON.stringify(v);
+                return v ?? null;
+              });
+              insert.run(...values as [string]);
+            }
+          });
+          insertAll(rows);
           if (!_fixtureTables.includes(table)) {
             _fixtureTables.push(table);
           }
@@ -163,7 +179,7 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
 
     async unfixture() {
       for (const table of _fixtureTables) {
-        db.exec(`DROP TABLE IF EXISTS "${table}"`);
+        db.exec(`DELETE FROM "${table}"`);
       }
       _fixtureTables = [];
     },
