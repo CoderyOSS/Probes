@@ -133,7 +133,7 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
         db.exec(`DROP TABLE IF EXISTS "${params.table}"`);
       } else {
         const tables = db
-          .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
           .all() as { name: string }[];
         for (const t of tables) {
           db.exec(`DROP TABLE IF EXISTS "${t.name}"`);
