@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "node:path";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createSqlInterface } from "../src/interfaces/sql";
 import type { SqlConfig } from "../src/interfaces/types";
 
@@ -21,11 +21,12 @@ function makeSql(config?: Partial<SqlConfig>) {
 }
 
 describe("sql.put", () => {
-  it("creates table and inserts rows", async () => {
+  it("creates table and inserts rows with force_schema", async () => {
     const sql = makeSql();
     await sql.put({
       table: "users",
       rows: [{ id: 1, name: "Alice", email: "a@b.com" }],
+      force_schema: true,
     });
 
     const rows = await sql.read({ table: "users" });
@@ -34,11 +35,29 @@ describe("sql.put", () => {
     expect(rows[0].email).toBe("a@b.com");
   });
 
-  it("replaces existing table data", async () => {
+  it("inserts into existing table without force_schema", async () => {
     const sql = makeSql();
     await sql.put({
       table: "users",
       rows: [{ id: 1, name: "Alice" }],
+      force_schema: true,
+    });
+
+    await sql.put({
+      table: "users",
+      rows: [{ id: 2, name: "Bob" }],
+    });
+
+    const rows = await sql.read({ table: "users" });
+    expect(rows).toHaveLength(2);
+  });
+
+  it("replaces table data when force_schema used repeatedly", async () => {
+    const sql = makeSql();
+    await sql.put({
+      table: "users",
+      rows: [{ id: 1, name: "Alice" }],
+      force_schema: true,
     });
     await sql.put({
       table: "users",
@@ -46,6 +65,7 @@ describe("sql.put", () => {
         { id: 2, name: "Bob" },
         { id: 3, name: "Carol" },
       ],
+      force_schema: true,
     });
 
     const rows = await sql.read({ table: "users" });
@@ -53,16 +73,54 @@ describe("sql.put", () => {
     expect(rows.map((r) => r.name).sort()).toEqual(["Bob", "Carol"]);
   });
 
-  it("drops table when rows is empty", async () => {
+  it("throws on missing table without force_schema", async () => {
     const sql = makeSql();
-    await sql.put({
-      table: "users",
-      rows: [{ id: 1, name: "Alice" }],
-    });
-    await sql.put({ table: "users", rows: [] });
+    expect(
+      sql.put({ table: "ghost", rows: [{ id: 1 }] })
+    ).rejects.toThrow("does not exist");
+  });
 
-    const rows = await sql.read({ table: "users" });
-    expect(rows).toEqual([]);
+  it("loads fixture from file with force_schema", async () => {
+    const sql = makeSql();
+    writeFileSync(
+      join(DB_DIR, "fixture.yaml"),
+      "users:\n  - { id: 1, name: Alice }\nposts:\n  - { id: 1, title: Hello, user_id: 1 }\n",
+    );
+
+    await sql.put({ file: join(DB_DIR, "fixture.yaml"), force_schema: true });
+
+    const users = await sql.read({ table: "users" });
+    expect(users).toHaveLength(1);
+    const posts = await sql.read({ table: "posts" });
+    expect(posts).toHaveLength(1);
+  });
+
+  it("loads fixture from file into existing table without force_schema", async () => {
+    const sql = makeSql();
+    await sql.put({ table: "users", rows: [{ id: 1, name: "Alice" }], force_schema: true });
+    writeFileSync(
+      join(DB_DIR, "fixture.yaml"),
+      "users:\n  - { id: 2, name: Bob }\n",
+    );
+
+    await sql.put({ file: join(DB_DIR, "fixture.yaml") });
+
+    const users = await sql.read({ table: "users" });
+    expect(users).toHaveLength(2);
+  });
+
+  it("throws when both file and table/rows provided", async () => {
+    const sql = makeSql();
+    expect(
+      sql.put({ file: "x.yaml", table: "users", rows: [] } as any)
+    ).rejects.toThrow("not both");
+  });
+
+  it("throws when neither file nor table/rows provided", async () => {
+    const sql = makeSql();
+    expect(
+      sql.put({} as any)
+    ).rejects.toThrow("Provide 'file' or 'table' with 'rows'");
   });
 
   it("handles multiple tables independently", async () => {
@@ -70,10 +128,12 @@ describe("sql.put", () => {
     await sql.put({
       table: "users",
       rows: [{ id: 1, name: "Alice" }],
+      force_schema: true,
     });
     await sql.put({
       table: "posts",
       rows: [{ id: 1, title: "Hello", user_id: 1 }],
+      force_schema: true,
     });
 
     const users = await sql.read({ table: "users" });
@@ -92,6 +152,7 @@ describe("sql.read", () => {
         { id: 1, name: "Alice", active: 1 },
         { id: 2, name: "Bob", active: 0 },
       ],
+      force_schema: true,
     });
 
     const active = await sql.read({ table: "users", where: { active: 1 } });
@@ -108,6 +169,7 @@ describe("sql.read", () => {
         { id: 1, name: "Alice" },
         { id: 2, name: "Bob" },
       ],
+      force_schema: true,
     });
 
     const rows = await sql.read({ table: "users", order_by: "name" });
@@ -123,6 +185,7 @@ describe("sql.read", () => {
         { id: 2, name: "Bob" },
         { id: 3, name: "Carol" },
       ],
+      force_schema: true,
     });
 
     const rows = await sql.read({ table: "users", limit: 2 });
@@ -130,19 +193,13 @@ describe("sql.read", () => {
   });
 });
 
-describe("sql.reset", () => {
-  it("drops specific table", async () => {
+describe("sql.clear", () => {
+  it("clears specific table", async () => {
     const sql = makeSql();
-    await sql.put({
-      table: "users",
-      rows: [{ id: 1, name: "Alice" }],
-    });
-    await sql.put({
-      table: "posts",
-      rows: [{ id: 1, title: "Hello" }],
-    });
+    await sql.put({ table: "users", rows: [{ id: 1, name: "Alice" }], force_schema: true });
+    await sql.put({ table: "posts", rows: [{ id: 1, title: "Hello" }], force_schema: true });
 
-    await sql.reset({ table: "users" });
+    await sql.clear({ table: "users" });
 
     const users = await sql.read({ table: "users" });
     const posts = await sql.read({ table: "posts" });
@@ -150,22 +207,38 @@ describe("sql.reset", () => {
     expect(posts).toHaveLength(1);
   });
 
-  it("drops all tables when no table specified", async () => {
+  it("clears all tables", async () => {
     const sql = makeSql();
-    await sql.put({
-      table: "users",
-      rows: [{ id: 1, name: "Alice" }],
-    });
-    await sql.put({
-      table: "posts",
-      rows: [{ id: 1, title: "Hello" }],
-    });
+    await sql.put({ table: "users", rows: [{ id: 1, name: "Alice" }], force_schema: true });
+    await sql.put({ table: "posts", rows: [{ id: 1, title: "Hello" }], force_schema: true });
 
-    await sql.reset();
+    await sql.clear({ all: true });
 
     const users = await sql.read({ table: "users" });
     const posts = await sql.read({ table: "posts" });
     expect(users).toEqual([]);
     expect(posts).toEqual([]);
+  });
+
+  it("clears seeded tables by default", async () => {
+    const sql = makeSql();
+    await sql.put({ table: "users", rows: [{ id: 1, name: "Alice" }], force_schema: true });
+
+    await sql.clear();
+
+    const users = await sql.read({ table: "users" });
+    expect(users).toEqual([]);
+  });
+
+  it("read returns data after put, empty after clear", async () => {
+    const sql = makeSql();
+    await sql.put({ table: "items", rows: [{ id: 1, name: "widget" }], force_schema: true });
+
+    const afterPut = await sql.read({ table: "items" });
+    expect(afterPut).toHaveLength(1);
+
+    await sql.clear();
+    const afterClear = await sql.read({ table: "items" });
+    expect(afterClear).toEqual([]);
   });
 });

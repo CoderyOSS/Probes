@@ -173,21 +173,26 @@ export async function startMcpServer(config: ProbesConfig): Promise<void> {
   );
 
   server.registerTool(
-    "sql_reset",
+    "sql_clear",
     {
       description:
-        "Drop a specific table or wipe entire database. Omit table to drop all tables.",
+        "Delete rows from tables. With table name, clears that table. With all: true, clears all tables. Without params, clears only seeded tables.",
       inputSchema: {
-        table: z.string().optional().describe("Table name to drop. Omit to drop all tables."),
+        table: z.string().optional().describe("Table name to clear"),
+        all: z.boolean().optional().describe("Clear all tables when true"),
       },
     },
-    async ({ table }) => {
-      await instance.sql.reset(table ? { table } : undefined);
+    async ({ table, all }) => {
+      await instance.sql.clear({ table, all });
       return {
         content: [
           {
             type: "text" as const,
-            text: table ? `Table "${table}" dropped` : "All tables dropped",
+            text: table
+              ? `Table "${table}" cleared`
+              : all
+                ? "All tables cleared"
+                : "Seeded tables cleared",
           },
         ],
       };

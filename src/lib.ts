@@ -79,9 +79,7 @@ class ProbesInstanceImpl implements ProbesInstance {
     return {
       put: (p) => this.sqlImpl!.put(p),
       read: (p) => this.sqlImpl!.read(p),
-      reset: (p) => this.sqlImpl!.reset(p),
-      fixture: (path) => this.sqlImpl!.fixture(path),
-      unfixture: () => this.sqlImpl!.unfixture(),
+      clear: (p) => this.sqlImpl!.clear(p),
     };
   }
 

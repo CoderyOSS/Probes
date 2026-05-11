@@ -170,16 +170,17 @@ export interface ProbesInstance {
     use: <In, Out>(adapter: Partial<ProbesInstance["http"]>) => ProbesInstance["http"];
   };
   sql: {
-    put: (params: { table: string; rows: Record<string, unknown>[] }) => Promise<void>;
+    put: (params: { file: string } | { file: string; force_schema: boolean }
+      | { table: string; rows: Record<string, unknown>[] }
+      | { table: string; rows: Record<string, unknown>[]; force_schema: boolean }
+    ) => Promise<void>;
     read: (params: {
       table: string;
       where?: Record<string, unknown>;
       order_by?: string;
       limit?: number;
     }) => Promise<Record<string, unknown>[]>;
-    reset: (params?: { table?: string }) => Promise<void>;
-    fixture: (path: string) => Promise<void>;
-    unfixture: () => Promise<void>;
+    clear: (params?: { table?: string; all?: boolean }) => Promise<void>;
   };
   fs: {
     put: (params: { path: string; content: string }) => Promise<void>;

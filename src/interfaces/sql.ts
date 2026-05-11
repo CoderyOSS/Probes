@@ -6,19 +6,14 @@ import type { SqlConfig } from "./types";
 import type { RecordBuffer } from "./record";
 
 export interface SqlActions {
-  put: (params: {
-    table: string;
-    rows: Record<string, unknown>[];
-  }) => Promise<void>;
+  put: (params: any) => Promise<void>;
   read: (params: {
     table: string;
     where?: Record<string, unknown>;
     order_by?: string;
     limit?: number;
   }) => Promise<Record<string, unknown>[]>;
-  reset: (params?: { table?: string }) => Promise<void>;
-  fixture: (path: string) => Promise<void>;
-  unfixture: () => Promise<void>;
+  clear: (params?: { table?: string; all?: boolean }) => Promise<void>;
   close: () => void;
 }
 
@@ -50,42 +45,72 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA busy_timeout = 5000");
 
-  let _fixtureTables: string[] = [];
+  const _seededTables = new Set<string>();
 
   return {
-    async put({ table, rows }) {
-      db.exec(`DROP TABLE IF EXISTS "${table}"`);
+    async put(params: any) {
+      let tables: Record<string, Record<string, unknown>[]> = {};
 
-      if (rows.length === 0) return;
-
-      const first = rows[0];
-      const columns = Object.keys(first);
-      const colDefs = columns.map((col) => {
-        const val = first[col];
-        const type = inferColumnType(val);
-        const nullable = val === null ? "" : " NOT NULL";
-        return `"${col}" ${type}${nullable}`;
-      });
-      const createSql = `CREATE TABLE "${table}" (${colDefs.join(", ")})`;
-      db.exec(createSql);
-
-      const placeholders = columns.map(() => "?").join(", ");
-      const insertSql = `INSERT INTO "${table}" (${columns.map((c) => `"${c}"`).join(", ")}) VALUES (${placeholders})`;
-      const insert = db.prepare(insertSql);
-
-      const insertMany = db.transaction((rows: Record<string, unknown>[]) => {
-        for (const row of rows) {
-          const values = columns.map((col) => {
-            const v = row[col];
-            if (typeof v === "boolean") return v ? 1 : 0;
-            if (typeof v === "object" && v !== null) return JSON.stringify(v);
-            return v ?? null;
-          });
-          insert.run(...values as [string]);
+      if (params.file) {
+        if (params.table || params.rows) {
+          throw new Error("Use 'file' or 'table' with 'rows', not both");
         }
-      });
+        const resolvedPath = resolve(params.file);
+        const raw = readFileSync(resolvedPath, "utf8");
+        tables = parseYaml(raw) as Record<string, Record<string, unknown>[]>;
+      } else if (params.table && Array.isArray(params.rows)) {
+        tables[params.table] = params.rows;
+      } else {
+        throw new Error("Provide 'file' or 'table' with 'rows'");
+      }
 
-      insertMany(rows);
+      const force = params.force_schema === true;
+
+      for (const [table, rows] of Object.entries(tables)) {
+        if (!Array.isArray(rows) || rows.length === 0) continue;
+
+        const exists = db.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
+        ).get(table);
+
+        if (!exists && !force) {
+          throw new Error(
+            `Table '${table}' does not exist. Use { force_schema: true } to create it.`
+          );
+        }
+
+        if (force) {
+          db.exec(`DROP TABLE IF EXISTS "${table}"`);
+          const first = rows[0];
+          const columns = Object.keys(first);
+          const colDefs = columns.map((col) => {
+            const val = first[col];
+            const type = inferColumnType(val);
+            const nullable = val === null ? "" : " NOT NULL";
+            return `"${col}" ${type}${nullable}`;
+          });
+          db.exec(`CREATE TABLE "${table}" (${colDefs.join(", ")})`);
+        }
+
+        const firstRow = rows[0];
+        const columns = Object.keys(firstRow);
+        const placeholders = columns.map(() => "?").join(", ");
+        const sql = `INSERT OR REPLACE INTO "${table}" (${columns.map(c => `"${c}"`).join(", ")}) VALUES (${placeholders})`;
+        const insert = db.prepare(sql);
+        const insertAll = db.transaction((rs: Record<string, unknown>[]) => {
+          for (const row of rs) {
+            const values = columns.map((col) => {
+              const v = row[col];
+              if (typeof v === "boolean") return v ? 1 : 0;
+              if (typeof v === "object" && v !== null) return JSON.stringify(v);
+              return v ?? null;
+            });
+            insert.run(...values as [string]);
+          }
+        });
+        insertAll(rows);
+        _seededTables.add(table);
+      }
     },
 
     async read({ table, where, order_by, limit }) {
@@ -131,57 +156,28 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
       return rows;
     },
 
-    async reset(params) {
+    async clear(params?: { table?: string; all?: boolean }) {
       if (params?.table) {
-        db.exec(`DROP TABLE IF EXISTS "${params.table}"`);
-      } else {
-        const tables = db
-          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-          .all() as { name: string }[];
+        db.exec(`DELETE FROM "${params.table}"`);
+        _seededTables.delete(params.table);
+      } else if (params?.all) {
+        const tables = db.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).all() as { name: string }[];
         for (const t of tables) {
-          db.exec(`DROP TABLE IF EXISTS "${t.name}"`);
+          db.exec(`DELETE FROM "${t.name}"`);
         }
+        _seededTables.clear();
+      } else {
+        for (const table of _seededTables) {
+          db.exec(`DELETE FROM "${table}"`);
+        }
+        _seededTables.clear();
       }
     },
 
     close() {
       db.close();
-    },
-
-    async fixture(path: string) {
-      const resolvedPath = resolve(path);
-      const raw = readFileSync(resolvedPath, "utf8");
-      const data = parseYaml(raw) as Record<string, Record<string, unknown>[]>;
-      for (const [table, rows] of Object.entries(data)) {
-        if (Array.isArray(rows) && rows.length > 0) {
-          const columns = Object.keys(rows[0]);
-          const placeholders = columns.map(() => "?").join(", ");
-          const sql = `INSERT OR REPLACE INTO "${table}" (${columns.map((c) => `"${c}"`).join(", ")}) VALUES (${placeholders})`;
-          const insert = db.prepare(sql);
-          const insertAll = db.transaction((rs: Record<string, unknown>[]) => {
-            for (const row of rs) {
-              const values = columns.map((col) => {
-                const v = row[col];
-                if (typeof v === "boolean") return v ? 1 : 0;
-                if (typeof v === "object" && v !== null) return JSON.stringify(v);
-                return v ?? null;
-              });
-              insert.run(...values as [string]);
-            }
-          });
-          insertAll(rows);
-          if (!_fixtureTables.includes(table)) {
-            _fixtureTables.push(table);
-          }
-        }
-      }
-    },
-
-    async unfixture() {
-      for (const table of _fixtureTables) {
-        db.exec(`DELETE FROM "${table}"`);
-      }
-      _fixtureTables = [];
     },
   };
 }

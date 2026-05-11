@@ -11,7 +11,7 @@ describe("probes.group()", () => {
     const g = group(BASE_CONFIG);
     const p = await g.attach();
     expect(p.sql).toBeDefined();
-    await p.sql.put({ table: "t", rows: [{ x: 1 }] });
+    await p.sql.put({ table: "t", rows: [{ x: 1 }], force_schema: true });
     await g.detach();
   });
 
@@ -29,7 +29,7 @@ describe("probes.group()", () => {
     const p1 = await g.attach();
     const p2 = await g.attach();
     await g.detach();
-    await p2.sql.put({ table: "t2", rows: [{ y: 2 }] });
+    await p2.sql.put({ table: "t2", rows: [{ y: 2 }], force_schema: true });
     const rows = await p2.sql.read({ table: "t2" });
     expect(rows).toHaveLength(1);
     await g.detach();
@@ -41,7 +41,7 @@ describe("probes.group()", () => {
     await g.detach();
     let err: Error | null = null;
     try {
-      await p.sql.put({ table: "t", rows: [{ x: 1 }] });
+    await p.sql.put({ table: "t", rows: [{ x: 1 }], force_schema: true });
     } catch (e) {
       err = e as Error;
     }
@@ -72,12 +72,12 @@ describe("probes.group()", () => {
     const calls: string[] = [];
     g.onTeardown(async () => { calls.push("only-once"); });
     const p1 = await g.attach();
-    await p1.sql.put({ table: "session1", rows: [{ v: 1 }] });
+    await p1.sql.put({ table: "session1", rows: [{ v: 1 }], force_schema: true });
     await g.detach();
     expect(calls).toEqual(["only-once"]);
 
     const p2 = await g.attach();
-    await p2.sql.put({ table: "session2", rows: [{ v: 2 }] });
+    await p2.sql.put({ table: "session2", rows: [{ v: 2 }], force_schema: true });
     const rows = await p2.sql.read({ table: "session2" });
     expect(rows).toHaveLength(1);
     await g.detach();

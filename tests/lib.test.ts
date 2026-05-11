@@ -28,6 +28,7 @@ describe("probes() factory", () => {
     await p.sql.put({
       table: "items",
       rows: [{ id: 1, name: "widget" }],
+      force_schema: true,
     });
     const rows = await p.sql.read({ table: "items" });
     expect(rows).toHaveLength(1);

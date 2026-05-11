@@ -25,7 +25,7 @@ describe("probes.proof", () => {
       proof: { output },
     });
 
-    await p.sql.put({ table: "items", rows: [{ id: 1, name: "widget" }] });
+    await p.sql.put({ table: "items", rows: [{ id: 1, name: "widget" }], force_schema: true });
     await p.sql.read({ table: "items" });
     p.proof.save();
     await p.close();
@@ -69,7 +69,7 @@ describe("probes.proof", () => {
       proof: { output },
     });
 
-    await p.sql.put({ table: "t", rows: [{ x: 1 }] });
+    await p.sql.put({ table: "t", rows: [{ x: 1 }], force_schema: true });
     await p.sql.read({ table: "t" });
     p.proof.save();
     await p.close();
@@ -85,8 +85,8 @@ describe("probes.proof", () => {
       proof: { output },
     });
 
-    await p.sql.put({ table: "first", rows: [{ v: 1 }] });
-    await p.sql.put({ table: "second", rows: [{ v: 2 }] });
+    await p.sql.put({ table: "first", rows: [{ v: 1 }], force_schema: true });
+    await p.sql.put({ table: "second", rows: [{ v: 2 }], force_schema: true });
     p.proof.save();
     await p.close();
 
