@@ -9,7 +9,7 @@ import { createUnixInterface, type UnixActions } from "./interfaces/unix";
 import { createRecordInterface, type RecordActions, type RecordBuffer } from "./interfaces/record";
 import type { ProbesConfig, ProbesInstance } from "./interfaces/types";
 import { spawn, type Subprocess } from "bun";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 
 let _instance: ProbesInstanceImpl | null = null;
@@ -209,26 +209,10 @@ async function pollSocket(path: string, intervalMs: number, timeoutMs: number): 
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          reject(new Error("poll timeout"));
-        }, 1000);
-        try {
-          Bun.connect({
-            unix: path,
-            socket: {
-              open(socket) { clearTimeout(timer); socket.end(); resolve(); },
-              data() {},
-              error(_s, err) { clearTimeout(timer); reject(err); },
-              close() { clearTimeout(timer); reject(new Error("socket closed before open")); },
-            },
-          });
-        } catch (err) {
-          clearTimeout(timer);
-          reject(err);
-        }
-      });
-      return;
+      if (existsSync(path)) {
+        const st = statSync(path);
+        if (st.isSocket()) return;
+      }
     } catch {}
     await new Promise((r) => setTimeout(r, intervalMs));
   }
