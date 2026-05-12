@@ -92,4 +92,46 @@ describe("probes.proof", () => {
 
     expect(existsSync(output)).toBe(true);
   });
+
+  it("begin/end groups events into sections", async () => {
+    const output = join(TMP, "sections.md");
+    const p = await probes({
+      interfaces: { sql: { path: join(TMP, "sections.db") } },
+      proof: { output },
+    });
+
+    p.proof.begin("test one");
+    await p.sql.put({ table: "t1", rows: [{ x: 1 }], force_schema: true });
+    p.proof.end();
+
+    p.proof.begin("test two");
+    await p.sql.put({ table: "t2", rows: [{ y: 2 }], force_schema: true });
+    p.proof.end();
+
+    await p.sql.put({ table: "t3", rows: [{ z: 3 }], force_schema: true });
+
+    p.proof.save();
+    await p.close();
+
+    const content = readFileSync(output, "utf8");
+    expect(content).toContain("## test one");
+    expect(content).toContain("## test two");
+    expect(content).toContain("## (setup)");
+  });
+
+  it("begin/end without sections falls back to flat format", async () => {
+    const output = join(TMP, "flat.md");
+    const p = await probes({
+      interfaces: { sql: { path: join(TMP, "flat.db") } },
+      proof: { output },
+    });
+
+    await p.sql.put({ table: "t", rows: [{ v: 1 }], force_schema: true });
+    p.proof.save();
+    await p.close();
+
+    const content = readFileSync(output, "utf8");
+    expect(content).toContain("### Sequence");
+    expect(content).not.toContain("## (setup)");
+  });
 });

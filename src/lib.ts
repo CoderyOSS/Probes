@@ -130,6 +130,8 @@ class ProbesInstanceImpl implements ProbesInstance {
   get proof(): ProbesInstance["proof"] {
     if (!this.proofImpl) throw new Error("Proof not initialized");
     return {
+      begin: (name) => this.proofImpl!.begin(name),
+      end: () => this.proofImpl!.end(),
       save: () => this.proofImpl!.save(),
     };
   }

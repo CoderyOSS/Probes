@@ -211,6 +211,8 @@ export interface ProbesInstance {
     use: <In, Out>(factory: (raw: UnixActions<string, string>) => Partial<UnixActions<In, Out>>) => UnixActions<In, Out>;
   };
   proof: {
+    begin: (name: string) => void;
+    end: () => void;
     save: () => void;
   };
   configure: (partial: Partial<ProbesConfig>) => Promise<ProbesConfig>;

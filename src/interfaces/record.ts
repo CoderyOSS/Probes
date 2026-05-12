@@ -7,19 +7,32 @@ export interface RecordBuffer {
 }
 
 export interface RecordActions {
+  begin: (name: string) => void;
+  end: () => void;
   save: () => void;
   buffer: RecordBuffer;
 }
 
+type TaggedEvent = { event: RecordEvent; section: string | null };
+
 export function createRecordInterface(config: ProofConfig): RecordActions {
-  const events: RecordEvent[] = [];
+  const events: TaggedEvent[] = [];
+  let currentSection: string | null = null;
   const sessionStart = Date.now();
 
   const buffer: RecordBuffer = {
     push(event) {
-      events.push(event);
+      events.push({ event, section: currentSection });
     },
   };
+
+  function begin(name: string) {
+    currentSection = name;
+  }
+
+  function end() {
+    currentSection = null;
+  }
 
   function save() {
     const totalDuration = Date.now() - sessionStart;
@@ -32,25 +45,45 @@ export function createRecordInterface(config: ProofConfig): RecordActions {
     md += `---\n\n`;
 
     if (events.length > 0) {
-      md += `### Sequence\n\n`;
-      md += `| # | Time | Direction | Step | Detail |\n`;
-      md += `|---|------|-----------|------|--------|\n`;
-      const sorted = [...events].sort((a, b) => a.time.localeCompare(b.time));
-      for (let i = 0; i < sorted.length; i++) {
-        const e = sorted[i];
-        md += `| ${i + 1} | ${shortTime(e.time)} | ${eventDirection(e)} | ${eventStep(e)} | \`${eventDetail(e)}\` |\n`;
-      }
-      md += `\n`;
-    }
+      const sorted = [...events].sort((a, b) => a.event.time.localeCompare(b.event.time));
 
-    md += `---\n\n`;
+      const hasSections = sorted.some((e) => e.section !== null);
+
+      if (hasSections) {
+        const sections = new Map<string, TaggedEvent[]>();
+        for (const e of sorted) {
+          const key = e.section ?? "(setup)";
+          if (!sections.has(key)) sections.set(key, []);
+          sections.get(key)!.push(e);
+        }
+        for (const [name, group] of sections) {
+          md += `## ${name}\n\n`;
+          md += `| # | Time | Direction | Step | Detail |\n`;
+          md += `|---|------|-----------|------|--------|\n`;
+          for (let i = 0; i < group.length; i++) {
+            const e = group[i].event;
+            md += `| ${i + 1} | ${shortTime(e.time)} | ${eventDirection(e)} | ${eventStep(e)} | \`${eventDetail(e)}\` |\n`;
+          }
+          md += `\n---\n\n`;
+        }
+      } else {
+        md += `### Sequence\n\n`;
+        md += `| # | Time | Direction | Step | Detail |\n`;
+        md += `|---|------|-----------|------|--------|\n`;
+        for (let i = 0; i < sorted.length; i++) {
+          const e = sorted[i].event;
+          md += `| ${i + 1} | ${shortTime(e.time)} | ${eventDirection(e)} | ${eventStep(e)} | \`${eventDetail(e)}\` |\n`;
+        }
+        md += `\n---\n\n`;
+      }
+    }
 
     const dir = dirname(config.output);
     mkdirSync(dir, { recursive: true });
     writeFileSync(config.output, md);
   }
 
-  return { save, buffer };
+  return { begin, end, save, buffer };
 }
 
 function shortTime(iso: string): string {
