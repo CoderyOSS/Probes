@@ -45,7 +45,9 @@ export function createRecordInterface(config: ProofConfig): RecordActions {
     md += `---\n\n`;
 
     if (events.length > 0) {
-      const sorted = [...events].sort((a, b) => a.event.time.localeCompare(b.event.time));
+      const sorted = [...events].sort((a, b) =>
+        a.event.time.localeCompare(b.event.time),
+      );
 
       const hasSections = sorted.some((e) => e.section !== null);
 
@@ -58,23 +60,15 @@ export function createRecordInterface(config: ProofConfig): RecordActions {
         }
         for (const [name, group] of sections) {
           md += `## ${name}\n\n`;
-          md += `| # | Time | Direction | Step | Detail |\n`;
-          md += `|---|------|-----------|------|--------|\n`;
-          for (let i = 0; i < group.length; i++) {
-            const e = group[i].event;
-            md += `| ${i + 1} | ${shortTime(e.time)} | ${eventDirection(e)} | ${eventStep(e)} | \`${eventDetail(e)}\` |\n`;
-          }
-          md += `\n---\n\n`;
+          md += renderTable(group);
+          md += renderDetails(group);
+          md += `---\n\n`;
         }
       } else {
         md += `### Sequence\n\n`;
-        md += `| # | Time | Direction | Step | Detail |\n`;
-        md += `|---|------|-----------|------|--------|\n`;
-        for (let i = 0; i < sorted.length; i++) {
-          const e = sorted[i].event;
-          md += `| ${i + 1} | ${shortTime(e.time)} | ${eventDirection(e)} | ${eventStep(e)} | \`${eventDetail(e)}\` |\n`;
-        }
-        md += `\n---\n\n`;
+        md += renderTable(sorted);
+        md += renderDetails(sorted);
+        md += `---\n\n`;
       }
     }
 
@@ -84,6 +78,53 @@ export function createRecordInterface(config: ProofConfig): RecordActions {
   }
 
   return { begin, end, save, buffer };
+}
+
+function renderTable(group: TaggedEvent[]): string {
+  let md = `| # | Time | Direction | Step | Detail |\n`;
+  md += `|---|------|-----------|------|--------|\n`;
+  for (let i = 0; i < group.length; i++) {
+    const e = group[i].event;
+    md += `| ${i + 1} | ${shortTime(e.time)} | ${eventDirection(e)} | ${eventStep(e)} | \`${eventDetail(e)}\` |\n`;
+  }
+  return md + "\n";
+}
+
+function renderDetails(group: TaggedEvent[]): string {
+  let md = "";
+  for (let i = 0; i < group.length; i++) {
+    const expanded = expandableDetail(group[i].event);
+    if (!expanded) continue;
+    const label = eventLabel(group[i].event);
+    md += `<details><summary>${i + 1}. ${label}</summary>\n\n`;
+    md += "```json\n";
+    md += expanded;
+    md += "\n```\n\n";
+    md += `</details>\n\n`;
+  }
+  return md;
+}
+
+function eventLabel(e: RecordEvent): string {
+  const dir = eventDirection(e);
+  const step = eventStep(e);
+  return `${dir} ${step}`;
+}
+
+function expandableDetail(e: RecordEvent): string | null {
+  switch (e.kind) {
+    case "send":
+      return null;
+    case "recv": {
+      if (typeof e.data === "string") return null;
+      if (e.data === null || e.data === undefined) return null;
+      return JSON.stringify(e.data, null, 2);
+    }
+    case "response": {
+      if (!e.parsed) return null;
+      return JSON.stringify(e.parsed, null, 2);
+    }
+  }
 }
 
 function shortTime(iso: string): string {
@@ -124,11 +165,14 @@ function eventDetail(e: RecordEvent): string {
       return truncate(dataStr, 200);
     }
     case "recv": {
-      const dataStr = typeof e.data === "string" ? e.data : JSON.stringify(e.data);
+      const dataStr =
+        typeof e.data === "string" ? e.data : JSON.stringify(e.data);
       return truncate(dataStr, 300);
     }
     case "response": {
-      const raw = e.parsed ? JSON.stringify(e.parsed) : sanitize(e.raw ?? "");
+      const raw = e.parsed
+        ? JSON.stringify(e.parsed)
+        : sanitize(e.raw ?? "");
       return truncate(raw, 300);
     }
   }
