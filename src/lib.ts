@@ -250,14 +250,16 @@ async function autoInit(): Promise<void> {
   await instance.init();
   _instance = instance;
 
-  process.on("exit", () => {
+  const saveAndCleanup = () => {
     if (_instance) {
       _instance.proof.save();
     }
     if (_launcherProc) {
       try { _launcherProc.kill(); } catch {}
     }
-  });
+  };
+  process.on("exit", saveAndCleanup);
+  process.on("beforeExit", saveAndCleanup);
 }
 
 export function probesSession(config: ProbesConfig): Promise<ProbesInstance> {
@@ -268,12 +270,18 @@ async function initManual(config: ProbesConfig): Promise<ProbesInstance> {
   const instance = new ProbesInstanceImpl(config);
   await instance.init();
   _instance = instance;
-  process.on("exit", () => {
+  const save = () => {
     if (_instance) _instance.proof.save();
-  });
+  };
+  process.on("exit", save);
+  process.on("beforeExit", save);
   return instance;
 }
 
+/**
+ * Global lazy proxy — auto-inits from probes.yml, auto-saves proof records.
+ * Use this in all test files: `import { p } from "@codery/probes"`
+ */
 export const p: ProbesInstance = new Proxy({} as ProbesInstance, {
   get(_target, key) {
     if (!_instance) {
@@ -293,6 +301,11 @@ if (typeof Bun !== "undefined" && !process.env.PROBES_SKIP_AUTOINIT) {
 export { loadConfig, findConfigFile } from "./config";
 export type { ProbesConfig, ProbesInstance } from "./interfaces/types";
 
+/**
+ * Creates an isolated ProbesInstance WITHOUT auto-save.
+ * For standalone scripts only — you MUST call `.proof.save()` manually.
+ * For test suites, use the `p` export instead.
+ */
 export async function probes(config: Partial<ProbesConfig>): Promise<ProbesInstance> {
   const validated = validateConfig(config);
   const instance = new ProbesInstanceImpl(validated);

@@ -106,6 +106,10 @@ export function createHttpInterface(config: HttpConfig, record?: RecordBuffer): 
         ...extraHeaders,
       };
 
+      if (body && !reqHeaders["content-type"] && !reqHeaders["Content-Type"]) {
+        reqHeaders["content-type"] = "application/json";
+      }
+
       record?.push({
         kind: "send",
         time: new Date().toISOString(),

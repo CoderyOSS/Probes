@@ -26,7 +26,133 @@ function inferColumnType(value: unknown): string {
   return "TEXT";
 }
 
-export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): SqlActions {
+const EVENTS_TABLE = "_probes_events";
+
+function _getColumns(db: Database, table: string): string[] {
+  const info = db.prepare(`PRAGMA table_info("${table}")`).all() as { name: string }[];
+  return info.map((c) => c.name);
+}
+
+function _getPrimaryKeys(db: Database, table: string): string[] {
+  const info = db.prepare(`PRAGMA table_info("${table}")`).all() as {
+    name: string;
+    pk: number;
+  }[];
+  return info
+    .filter((c) => c.pk > 0)
+    .map((c) => c.name);
+}
+
+function _buildJsonObjectExpr(columns: string[], prefix: string): string {
+  const parts = columns.map((c) => `'${c}', ${prefix}."${c}"`);
+  return `json_object(${parts.join(", ")})`;
+}
+
+function _buildRowIdExpr(pks: string[], prefix: string): string {
+  if (pks.length === 0) return `CAST(${prefix}.rowid AS TEXT)`;
+  return pks
+    .map((pk) => `CAST(${prefix}."${pk}" AS TEXT)`)
+    .join(` || '|' || `);
+}
+
+function _createEventTable(db: Database): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS ${EVENTS_TABLE} (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    row_id TEXT,
+    event_time TEXT NOT NULL,
+    data TEXT
+  )`);
+}
+
+function _safeTriggerName(table: string): string {
+  return table.replace(/[^a-zA-Z0-9_]/g, "_");
+}
+
+function _createTriggersForTable(db: Database, table: string): void {
+  const columns = _getColumns(db, table);
+  if (columns.length === 0) return;
+
+  const pks = _getPrimaryKeys(db, table);
+  const safe = _safeTriggerName(table);
+
+  const newDataObj = _buildJsonObjectExpr(columns, "NEW");
+  const oldDataObj = _buildJsonObjectExpr(columns, "OLD");
+  const newRowId = _buildRowIdExpr(pks, "NEW");
+  const oldRowId = _buildRowIdExpr(pks, "OLD");
+
+  db.exec(`DROP TRIGGER IF EXISTS _probes_${safe}_ai`);
+  db.exec(`DROP TRIGGER IF EXISTS _probes_${safe}_au`);
+  db.exec(`DROP TRIGGER IF EXISTS _probes_${safe}_ad`);
+
+  db.exec(
+    `CREATE TRIGGER _probes_${safe}_ai AFTER INSERT ON "${table}" BEGIN
+      INSERT INTO ${EVENTS_TABLE}(table_name, operation, row_id, event_time, data)
+      VALUES ('${table}', 'INSERT', ${newRowId}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ${newDataObj});
+    END`,
+  );
+
+  db.exec(
+    `CREATE TRIGGER _probes_${safe}_au AFTER UPDATE ON "${table}" BEGIN
+      INSERT INTO ${EVENTS_TABLE}(table_name, operation, row_id, event_time, data)
+      VALUES ('${table}', 'UPDATE', ${newRowId}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ${newDataObj});
+    END`,
+  );
+
+  db.exec(
+    `CREATE TRIGGER _probes_${safe}_ad AFTER DELETE ON "${table}" BEGIN
+      INSERT INTO ${EVENTS_TABLE}(table_name, operation, row_id, event_time, data)
+      VALUES ('${table}', 'DELETE', ${oldRowId}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ${oldDataObj});
+    END`,
+  );
+}
+
+function _ensureAllTriggers(db: Database, tracked: Set<string>): void {
+  const tables = db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_probes_%'",
+    )
+    .all() as { name: string }[];
+
+  for (const { name } of tables) {
+    if (tracked.has(name)) continue;
+    _createTriggersForTable(db, name);
+    tracked.add(name);
+  }
+}
+
+function _flushEvents(db: Database, record?: RecordBuffer): void {
+  const events = db
+    .prepare(
+      `SELECT table_name, operation, row_id, event_time, data FROM ${EVENTS_TABLE} ORDER BY id`,
+    )
+    .all() as {
+    table_name: string;
+    operation: string;
+    row_id: string | null;
+    event_time: string;
+    data: string | null;
+  }[];
+
+  if (events.length === 0) return;
+
+  for (const evt of events) {
+    record?.push({
+      kind: "recv",
+      time: evt.event_time,
+      source: `sql:${evt.table_name}`,
+      data: evt.data ? JSON.parse(evt.data) : null,
+    });
+  }
+
+  db.exec(`DELETE FROM ${EVENTS_TABLE}`);
+}
+
+export function createSqlInterface(
+  config: SqlConfig,
+  record?: RecordBuffer,
+): SqlActions {
   const dbPath = resolve(config.path);
   mkdirSync(dirname(dbPath), { recursive: true });
 
@@ -46,6 +172,10 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
   db.exec("PRAGMA busy_timeout = 5000");
 
   const _seededTables = new Set<string>();
+  const _triggeredTables = new Set<string>();
+
+  _createEventTable(db);
+  _ensureAllTriggers(db, _triggeredTables);
 
   return {
     async put(params: any) {
@@ -69,13 +199,15 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
       for (const [table, rows] of Object.entries(tables)) {
         if (!Array.isArray(rows) || rows.length === 0) continue;
 
-        const exists = db.prepare(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
-        ).get(table);
+        const exists = db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+          )
+          .get(table);
 
         if (!exists && !force) {
           throw new Error(
-            `Table '${table}' does not exist. Use { force_schema: true } to create it.`
+            `Table '${table}' does not exist. Use { force_schema: true } to create it.`,
           );
         }
 
@@ -90,12 +222,13 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
             return `"${col}" ${type}${nullable}`;
           });
           db.exec(`CREATE TABLE "${table}" (${colDefs.join(", ")})`);
+          _triggeredTables.delete(table);
         }
 
         const firstRow = rows[0];
         const columns = Object.keys(firstRow);
         const placeholders = columns.map(() => "?").join(", ");
-        const sql = `INSERT OR REPLACE INTO "${table}" (${columns.map(c => `"${c}"`).join(", ")}) VALUES (${placeholders})`;
+        const sql = `INSERT OR REPLACE INTO "${table}" (${columns.map((c) => `"${c}"`).join(", ")}) VALUES (${placeholders})`;
         const insert = db.prepare(sql);
         const insertAll = db.transaction((rs: Record<string, unknown>[]) => {
           for (const row of rs) {
@@ -105,7 +238,7 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
               if (typeof v === "object" && v !== null) return JSON.stringify(v);
               return v ?? null;
             });
-            insert.run(...values as [string]);
+            insert.run(...(values as [string]));
           }
         });
         insertAll(rows);
@@ -119,21 +252,21 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
           data: `${rows.length} rows`,
         });
       }
+
+      db.exec(`DELETE FROM ${EVENTS_TABLE}`);
+      _ensureAllTriggers(db, _triggeredTables);
     },
 
     async read({ table, where, order_by, limit }) {
+      _ensureAllTriggers(db, _triggeredTables);
+      _flushEvents(db, record);
+
       const tableCheck = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        )
         .get(table) as { name: string } | undefined;
-      if (!tableCheck) {
-        record?.push({
-          kind: "recv",
-          time: new Date().toISOString(),
-          source: `sql:${table}`,
-          data: [],
-        });
-        return [];
-      }
+      if (!tableCheck) return [];
 
       let sql = `SELECT * FROM "${table}"`;
       const params: unknown[] = [];
@@ -154,13 +287,10 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
         sql += ` LIMIT ${limit}`;
       }
 
-      const rows = db.prepare(sql).all(...params as [string]) as Record<string, unknown>[];
-      record?.push({
-        kind: "recv",
-        time: new Date().toISOString(),
-        source: `sql:${table}`,
-        data: rows,
-      });
+      const rows = db.prepare(sql).all(...(params as [string])) as Record<
+        string,
+        unknown
+      >[];
       return rows;
     },
 
@@ -176,9 +306,11 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
           data: `table: ${params.table}`,
         });
       } else if (params?.all) {
-        const tables = db.prepare(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-        ).all() as { name: string }[];
+        const tables = db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+          )
+          .all() as { name: string }[];
         for (const t of tables) {
           db.exec(`DELETE FROM "${t.name}"`);
         }
@@ -203,6 +335,8 @@ export function createSqlInterface(config: SqlConfig, record?: RecordBuffer): Sq
           data: "seeded tables",
         });
       }
+
+      db.exec(`DELETE FROM ${EVENTS_TABLE}`);
     },
 
     close() {
