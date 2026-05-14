@@ -106,11 +106,30 @@ export function createHttpInterface(config: HttpConfig, record?: RecordBuffer): 
         ...extraHeaders,
       };
 
-      const res = await fetch(url, {
-        method,
-        headers: reqHeaders,
-        body: body ? JSON.stringify(body) : undefined,
+      record?.push({
+        kind: "send",
+        time: new Date().toISOString(),
+        interface: "http",
+        action: "send",
+        data: `${method} ${path}${body ? ` ${typeof body === "string" ? body : JSON.stringify(body)}` : ""}`,
       });
+
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method,
+          headers: reqHeaders,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+      } catch (err) {
+        record?.push({
+          kind: "response",
+          time: new Date().toISOString(),
+          interface: "http",
+          raw: `error: ${err instanceof Error ? err.message : String(err)}`,
+        });
+        throw err;
+      }
 
       const contentType = res.headers.get("content-type") ?? "";
       let responseBody: unknown;
@@ -119,6 +138,14 @@ export function createHttpInterface(config: HttpConfig, record?: RecordBuffer): 
       } else {
         responseBody = await res.text();
       }
+
+      const bodyStr = typeof responseBody === "string" ? responseBody.slice(0, 300) : JSON.stringify(responseBody).slice(0, 300);
+      record?.push({
+        kind: "response",
+        time: new Date().toISOString(),
+        interface: "http",
+        raw: `${res.status} ${bodyStr}`,
+      });
 
       return {
         status: res.status,
