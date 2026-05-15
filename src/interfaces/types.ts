@@ -40,6 +40,8 @@ export interface HttpConfig {
 export interface SqlConfig {
   path: string;
   reset_on_start?: boolean;
+  server_port?: number;
+  schema_file?: string;
 }
 
 export interface FsConfig {

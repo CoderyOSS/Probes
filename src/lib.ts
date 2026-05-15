@@ -231,6 +231,10 @@ async function autoInit(): Promise<void> {
 
   const configDir = dirname(configPath);
 
+  const instance = new ProbesInstanceImpl(config);
+  await instance.init();
+  _instance = instance;
+
   if (config.launcher) {
     const shellCmd = config.launcher.command;
     _launcherProc = spawn({ cmd: ["sh", "-c", shellCmd], cwd: configDir, stdout: "ignore", stderr: "ignore" });
@@ -245,10 +249,6 @@ async function autoInit(): Promise<void> {
   } else if (config.launcher?.ready_after_ms) {
     await new Promise((r) => setTimeout(r, config.launcher.ready_after_ms));
   }
-
-  const instance = new ProbesInstanceImpl(config);
-  await instance.init();
-  _instance = instance;
 
   const saveAndCleanup = () => {
     if (_instance) {

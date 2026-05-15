@@ -39,6 +39,8 @@ const SqlSchema = z.object({
     .min(1)
     .refine((p) => !p.includes(".."), "Path traversal not allowed"),
   reset_on_start: z.boolean().optional(),
+  server_port: z.number().int().min(1).max(65535).optional(),
+  schema_file: z.string().optional(),
 });
 
 const FsSchema = z.object({
